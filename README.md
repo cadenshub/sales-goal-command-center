@@ -84,9 +84,26 @@ The Supabase schema includes:
 - `goal_periods`
 - `calendar_days`
 - `sales_entries`
+- `time_block_entries`
 - `incentives`
 - `settings`
 - `saved_filters`
+
+## Time Block Migration
+
+If your Supabase project already has the original schema, run this migration in the SQL Editor:
+
+```text
+supabase/migrations/20260503_time_blocks.sql
+```
+
+It adds:
+
+- `settings.time_blocks_config`
+- `time_block_entries`
+- RLS policy for time-block rows
+
+Daily totals stay synced to `sales_entries`, while detailed Morning/Afternoon/Evening progress is saved in `time_block_entries`.
 
 ## Product Scope
 
@@ -98,6 +115,8 @@ This MVP includes:
 - Date-range-aware goal engine
 - Editable season dates, tracking dates, and goals
 - Calendar scheduler with daily editing
+- Morning / Afternoon / Evening time-block tracker
+- Sales for Today quick-entry card
 - Weekly planner with editable ranges and targets
 - Incentives and rewards
 - Coach suggestions

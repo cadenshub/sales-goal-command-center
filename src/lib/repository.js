@@ -50,6 +50,7 @@ export async function loadWorkspace(userId) {
     { data: goalPeriods, error: goalPeriodsError },
     { data: calendarDays, error: calendarDaysError },
     { data: salesEntries, error: salesEntriesError },
+    { data: timeBlockEntries, error: timeBlockEntriesError },
     { data: incentives, error: incentivesError },
     { data: savedFilters, error: filtersError },
   ] = await Promise.all([
@@ -58,6 +59,7 @@ export async function loadWorkspace(userId) {
     supabase.from("goal_periods").select("*").eq("plan_id", plan.id).order("start_date"),
     supabase.from("calendar_days").select("*").eq("plan_id", plan.id).order("date"),
     supabase.from("sales_entries").select("*").eq("plan_id", plan.id).order("date"),
+    supabase.from("time_block_entries").select("*").eq("plan_id", plan.id).order("date"),
     supabase.from("incentives").select("*").eq("plan_id", plan.id).order("target_value"),
     supabase.from("saved_filters").select("*").eq("plan_id", plan.id).order("created_at"),
   ]);
@@ -68,6 +70,7 @@ export async function loadWorkspace(userId) {
     goalPeriodsError,
     calendarDaysError,
     salesEntriesError,
+    timeBlockEntriesError?.code === "42P01" ? null : timeBlockEntriesError,
     incentivesError,
     filtersError,
   ].filter(Boolean);
@@ -81,14 +84,26 @@ export async function loadWorkspace(userId) {
       catchup_preference: "balanced",
       theme_preference: "system",
       default_week_start_day: 1,
+      time_blocks_config: null,
     },
     weeks: weeks || [],
     goalPeriods: goalPeriods || [],
     calendarDays: calendarDays || [],
     salesEntries: salesEntries || [],
+    timeBlockEntries: timeBlockEntries || [],
     incentives: incentives || [],
     savedFilters: savedFilters || [],
   };
+}
+
+export async function upsertTimeBlockEntries(entries) {
+  if (!entries.length) return [];
+  const { data, error } = await supabase
+    .from("time_block_entries")
+    .upsert(entries, { onConflict: "plan_id,date,block_key" })
+    .select();
+  if (error) throw error;
+  return data || [];
 }
 
 export async function createWorkspace(userId, draft) {

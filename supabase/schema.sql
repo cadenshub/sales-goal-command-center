@@ -115,7 +115,30 @@ create table if not exists public.settings (
   normal_workdays integer[] not null default array[1,2,3,4,5],
   catchup_preference text not null default 'balanced',
   theme_preference text not null default 'system',
-  default_week_start_day integer not null default 1
+  default_week_start_day integer not null default 1,
+  time_blocks_config jsonb
+);
+
+alter table public.settings
+add column if not exists time_blocks_config jsonb;
+
+create table if not exists public.time_block_entries (
+  id uuid primary key default gen_random_uuid(),
+  plan_id uuid not null references public.plans(id) on delete cascade,
+  date date not null,
+  block_key text not null,
+  block_name text not null,
+  start_time time not null,
+  end_time time not null,
+  target_sales numeric not null default 0,
+  actual_sales integer not null default 0,
+  notes text,
+  status text not null default 'not_started',
+  capacity_weight numeric not null default 1,
+  include_in_calculations boolean not null default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(plan_id, date, block_key)
 );
 
 create table if not exists public.saved_filters (
@@ -158,6 +181,11 @@ create trigger incentives_touch_updated_at
 before update on public.incentives
 for each row execute function public.touch_updated_at();
 
+drop trigger if exists time_block_entries_touch_updated_at on public.time_block_entries;
+create trigger time_block_entries_touch_updated_at
+before update on public.time_block_entries
+for each row execute function public.touch_updated_at();
+
 alter table public.users enable row level security;
 alter table public.plans enable row level security;
 alter table public.weeks enable row level security;
@@ -167,6 +195,7 @@ alter table public.sales_entries enable row level security;
 alter table public.incentives enable row level security;
 alter table public.settings enable row level security;
 alter table public.saved_filters enable row level security;
+alter table public.time_block_entries enable row level security;
 
 drop policy if exists "users can read own profile" on public.users;
 create policy "users can read own profile" on public.users
@@ -212,5 +241,10 @@ with check (exists (select 1 from public.plans p where p.id = plan_id and p.user
 
 drop policy if exists "plan owners can manage saved filters" on public.saved_filters;
 create policy "plan owners can manage saved filters" on public.saved_filters
+for all using (exists (select 1 from public.plans p where p.id = plan_id and p.user_id = auth.uid()))
+with check (exists (select 1 from public.plans p where p.id = plan_id and p.user_id = auth.uid()));
+
+drop policy if exists "plan owners can manage time block entries" on public.time_block_entries;
+create policy "plan owners can manage time block entries" on public.time_block_entries
 for all using (exists (select 1 from public.plans p where p.id = plan_id and p.user_id = auth.uid()))
 with check (exists (select 1 from public.plans p where p.id = plan_id and p.user_id = auth.uid()));

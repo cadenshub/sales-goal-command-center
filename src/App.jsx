@@ -48,9 +48,10 @@ import {
   upsertIncentive,
   upsertSalesEntry,
   upsertSettings,
+  upsertTimeBlockEntries,
   upsertWeek,
 } from "./lib/repository";
-import { buildCommandCenter, dayTypes } from "./lib/goalEngine";
+import { buildCommandCenter, dayTypes, defaultTimeBlocks, normalizeTimeBlocks } from "./lib/goalEngine";
 import {
   addDays,
   datesBetween,
@@ -95,6 +96,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [selectedDay, setSelectedDay] = useState(null);
   const [saveState, setSaveState] = useState("Saved");
+  const [clockTick, setClockTick] = useState(0);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -127,6 +129,11 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockTick((value) => value + 1), 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   async function bootstrapWorkspace(user) {
     setLoading(true);
     setError("");
@@ -140,7 +147,10 @@ export default function App() {
     }
   }
 
-  const command = useMemo(() => buildCommandCenter(workspace), [workspace]);
+  const command = useMemo(() => {
+    void clockTick;
+    return buildCommandCenter(workspace);
+  }, [workspace, clockTick]);
 
   async function saveAndPatch(patcher, saveAction) {
     setWorkspace((current) => patcher(current));
@@ -241,7 +251,7 @@ export default function App() {
         </header>
 
         <div className="mx-auto max-w-7xl px-4 py-6 xl:px-8">
-          {page === "dashboard" && <Dashboard command={command} setPage={setPage} />}
+          {page === "dashboard" && <Dashboard command={command} setPage={setPage} onSaveDay={saveDay} />}
           {page === "calendar" && (
             <CalendarPage command={command} onSelectDay={setSelectedDay} />
           )}
@@ -295,6 +305,23 @@ export default function App() {
   }
 
   async function saveDay(date, payload) {
+    const blockEntries = (payload.time_blocks || []).map((block) => ({
+      plan_id: workspace.plan.id,
+      date,
+      block_key: block.key,
+      block_name: block.name,
+      start_time: block.start_time,
+      end_time: block.end_time,
+      target_sales: Number(block.target_sales ?? block.target ?? 0),
+      actual_sales: Number(block.actual_sales ?? block.actual ?? 0),
+      notes: block.notes || "",
+      status: block.status || "not_started",
+      capacity_weight: Number(block.capacity_weight ?? 1),
+      include_in_calculations: block.include_in_calculations !== false,
+    }));
+    const blockTotal = blockEntries.length
+      ? blockEntries.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0)
+      : null;
     const day = {
       plan_id: workspace.plan.id,
       date,
@@ -308,7 +335,7 @@ export default function App() {
     const entry = {
       plan_id: workspace.plan.id,
       date,
-      sales_count: Number(payload.sales_count || 0),
+      sales_count: Number(blockTotal ?? payload.sales_count ?? 0),
       notes: payload.sales_notes || "",
     };
     await saveAndPatch(
@@ -316,9 +343,16 @@ export default function App() {
         ...current,
         calendarDays: upsertLocalByDate(current.calendarDays, day),
         salesEntries: upsertLocalByDate(current.salesEntries, entry),
+        timeBlockEntries: blockEntries.length
+          ? upsertLocalBlocks(current.timeBlockEntries || [], blockEntries)
+          : current.timeBlockEntries || [],
       }),
       async () => {
-        await Promise.all([upsertCalendarDay(day), upsertSalesEntry(entry)]);
+        await Promise.all([
+          upsertCalendarDay(day),
+          upsertSalesEntry(entry),
+          blockEntries.length ? upsertTimeBlockEntries(blockEntries) : Promise.resolve([]),
+        ]);
       },
     );
   }
@@ -815,29 +849,28 @@ function SetupWizard({ user, onCreated, setError, error }) {
   );
 }
 
-function Dashboard({ command, setPage }) {
+function Dashboard({ command, setPage, onSaveDay }) {
   const completion = command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0;
   return (
     <div className="grid gap-5">
-      <section className={`gradient-hero celebrate overflow-hidden rounded-[2rem] p-6 text-white shadow-glow md:p-8`}>
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div className="max-w-3xl">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-black">
-              <Sparkles size={16} /> Today's command
-            </div>
-            <h2 className="text-3xl font-black tracking-tight md:text-5xl">{heroMessage(command)}</h2>
-            <p className="mt-4 max-w-2xl text-white/75">
-              Need <strong className="text-white">{number(command.salesNeededToday, 1)}</strong> today,{" "}
-              <strong className="text-white">{number(command.requiredThisWeek, 1)}</strong> per remaining workday this week, and{" "}
-              <strong className="text-white">{number(command.requiredPerWorkday, 1)}</strong> per workday for the season.
-            </p>
+      <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+        <TodaySalesCard command={command} onSaveDay={onSaveDay} />
+        <section className="gradient-hero celebrate overflow-hidden rounded-[2rem] p-6 text-white shadow-glow md:p-8">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-black">
+            <Sparkles size={16} /> Command brief
           </div>
-          <div className="min-w-56 rounded-3xl bg-white/12 p-5">
-            <div className="text-sm font-bold text-white/70">Completion</div>
+          <h2 className="text-3xl font-black tracking-tight md:text-4xl">{heroMessage(command)}</h2>
+          <p className="mt-4 text-white/75">
+            Need <strong className="text-white">{number(command.salesNeededToday, 1)}</strong> today,{" "}
+            <strong className="text-white">{number(command.requiredThisWeek, 1)}</strong> per remaining workday this week, and{" "}
+            <strong className="text-white">{number(command.requiredPerWorkday, 1)}</strong> per workday for the season.
+          </p>
+          <div className="mt-6 rounded-3xl bg-white/12 p-5">
+            <div className="text-sm font-bold text-white/70">Season completion</div>
             <div className="mt-2 text-5xl font-black">{percent(completion)}</div>
             <Progress value={completion} tone="white" />
           </div>
-        </div>
+        </section>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -848,7 +881,7 @@ function Dashboard({ command, setPage }) {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
-        <Card title="Goal line vs actual" icon={BarChart3}>
+        <Card title="Actual sales vs goal pace" icon={BarChart3}>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={command.charts.goalLine}>
@@ -864,6 +897,35 @@ function Dashboard({ command, setPage }) {
           </div>
         </Card>
         <CoachCard command={command} />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <Card title="Time-block performance" icon={Clock}>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={command.charts.timeBlocks}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="block" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="target" fill="#a78bfa" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="actual" fill="#14b8a6" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card title="Projection" icon={TrendingUp}>
+          <Metric label="Current pace" value={`${number(command.avgPerWorkedDay, 2)} / worked day`} />
+          <Metric label="Projected finish" value={number(command.projectedFinish, 1)} />
+          <Metric label="Goal" value={number(command.plan.total_goal)} />
+          <Metric label="Difference" value={number(command.projectedFinish - command.plan.total_goal, 1)} />
+          <div className="mt-4 rounded-3xl bg-slate-50 p-4 text-sm font-bold text-slate-600">
+            {command.projectedFinish >= command.plan.total_goal
+              ? "You are trending toward the goal. Keep the daily floor intact."
+              : "Projection is short. Use the Today card to create momentum early."}
+          </div>
+        </Card>
       </section>
 
       <section className="grid gap-5 lg:grid-cols-3">
@@ -898,6 +960,164 @@ function Dashboard({ command, setPage }) {
         </Card>
       </section>
     </div>
+  );
+}
+
+function TodaySalesCard({ command, onSaveDay }) {
+  const today = command.todayPlan;
+  const [notes, setNotes] = useState(today?.notes || "");
+  const [manualSales, setManualSales] = useState(today?.actual || 0);
+  const [blockDrafts, setBlockDrafts] = useState(() => blockDraftsFromDay(today));
+  const currentBlock = blockDrafts.find((block) => block.isCurrent) || today?.timeBlocks.currentBlock;
+
+  useEffect(() => {
+    setNotes(today?.notes || "");
+    setManualSales(today?.actual || 0);
+    setBlockDrafts(blockDraftsFromDay(today));
+  }, [today]);
+
+  if (!today) return null;
+
+  const totalActual = blockDrafts.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
+  const totalTarget = today.plannedTarget;
+  const remaining = Math.max(0, totalTarget - totalActual);
+  const activeBlock = currentBlock || blockDrafts.find((block) => block.active && !block.is_break);
+
+  function quickAdd(amount, key = activeBlock?.key) {
+    if (!key) return;
+    setManualSales((value) => Number(value || 0) + amount);
+    setBlockDrafts((current) =>
+      current.map((block) =>
+        block.key === key
+          ? { ...block, actual_sales: Number(block.actual_sales || 0) + amount, status: "current" }
+          : block,
+      ),
+    );
+  }
+
+  async function save() {
+    const currentTotal = blockDrafts.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
+    const diff = Number(manualSales || 0) - currentTotal;
+    const blocksToSave =
+      diff !== 0 && activeBlock
+        ? blockDrafts.map((block) =>
+            block.key === activeBlock.key
+              ? { ...block, actual_sales: Math.max(0, Number(block.actual_sales || 0) + diff) }
+              : block,
+          )
+        : blockDrafts;
+    await onSaveDay(today.date, {
+      sales_count: manualSales,
+      sales_notes: notes,
+      day_type: today.dayType,
+      capacity_weight: today.capacity,
+      planned_target: today.plannedTarget,
+      custom_target: today.customTarget ?? "",
+      include_in_calculations: today.include,
+      day_notes: today.notes,
+      time_blocks: blocksToSave.map((block) => ({
+        ...block,
+        target_sales: block.target,
+        actual_sales: Number(block.actual_sales || 0),
+      })),
+    });
+  }
+
+  return (
+    <section className="glass-card rounded-[2rem] p-5 md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
+          <h2 className="mt-1 text-3xl font-black tracking-tight">{formatDate(today.date, { weekday: "long" })}</h2>
+          <p className="mt-2 text-sm font-bold text-slate-500">
+            {today.dayType === "off"
+              ? "Today is marked off. You can still log bonus sales."
+              : today.timeBlocks.message}
+          </p>
+        </div>
+        <Badge tone={statusTone(today.status)}>{today.status}</Badge>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <MiniMetric label="Goal" value={number(totalTarget, 1)} />
+        <MiniMetric label="Done" value={number(totalActual)} />
+        <MiniMetric label="Left" value={number(remaining, 1)} />
+      </div>
+
+      <div className="mt-5 rounded-3xl bg-slate-950 p-4 text-white">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-black uppercase tracking-wide text-white/55">Current block</div>
+            <div className="text-2xl font-black">{activeBlock?.name || "Day review"}</div>
+          </div>
+          <div className="text-right text-sm font-bold text-white/75">
+            {activeBlock?.minutesLeft ? `${Math.floor(activeBlock.minutesLeft / 60)}h ${activeBlock.minutesLeft % 60}m left` : "Final results"}
+            <div className="text-white">{number(activeBlock?.remaining || remaining, 1)} needed</div>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {[1, 2, 5].map((amount) => (
+            <button
+              key={amount}
+              type="button"
+              onClick={() => quickAdd(amount)}
+              className="rounded-2xl bg-white px-4 py-3 font-black text-slate-950 transition hover:-translate-y-0.5"
+            >
+              +{amount}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3">
+        {blockDrafts.map((block) => (
+          <div
+            key={block.key}
+            className={`rounded-3xl border p-4 ${
+              block.isCurrent ? "border-indigo-300 bg-indigo-50" : block.is_break ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-white"
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate font-black">{block.name}</div>
+                <div className="text-xs font-bold text-slate-500">{block.start_time} - {block.end_time}</div>
+              </div>
+              <Badge tone={statusTone(block.status)}>{block.status}</Badge>
+            </div>
+            <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
+              <div>
+                <Progress value={(Number(block.actual_sales || 0) / Math.max(1, Number(block.target || 0))) * 100} tone={block.is_break ? "slate" : "purple"} />
+                <div className="mt-2 text-sm font-bold text-slate-500">
+                  {number(block.actual_sales || 0)} / {number(block.target || 0, 1)} sales
+                </div>
+              </div>
+              {!block.is_break && (
+                <div className="flex gap-1">
+                  {[1, 2].map((amount) => (
+                    <button
+                      key={amount}
+                      type="button"
+                      onClick={() => quickAdd(amount, block.key)}
+                      className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-black"
+                    >
+                      +{amount}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-[0.4fr_1fr]">
+        <Field label="Manual total" type="number" value={manualSales} onChange={setManualSales} />
+        <Field label="Notes" value={notes} onChange={setNotes} />
+      </div>
+      <button type="button" onClick={save} className="mt-4 w-full rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white shadow-card transition hover:-translate-y-0.5">
+        Save today
+      </button>
+    </section>
   );
 }
 
@@ -945,14 +1165,26 @@ function CalendarPage({ command, onSelectDay }) {
           </div>
         )}
       </Card>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={`grid gap-3 ${mode === "month" || mode === "week" ? "md:grid-cols-7" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
+        {(mode === "month" || mode === "week") &&
+          weekdayOptions.map((day) => (
+            <div key={day.value} className="hidden rounded-2xl bg-white/70 px-3 py-2 text-center text-xs font-black uppercase tracking-wide text-slate-400 md:block">
+              {day.label}
+            </div>
+          ))}
         {days.map((day) => (
           <button
             key={day.date}
             type="button"
             onClick={() => onSelectDay(day.date)}
-            className={`rounded-3xl border p-4 text-left shadow-card transition hover:-translate-y-1 hover:shadow-glow ${
-              day.isToday ? "border-indigo-400 bg-indigo-50" : day.isPast ? "border-slate-200 bg-white" : "border-slate-200 bg-white/80"
+            className={`min-h-44 rounded-3xl border p-4 text-left shadow-card transition hover:-translate-y-1 hover:shadow-glow ${
+              day.dayType === "off"
+                ? "border-slate-200 bg-slate-100"
+                : day.isToday
+                  ? "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-200"
+                  : day.isPast
+                    ? "border-slate-200 bg-white"
+                    : "border-slate-200 bg-white/80"
             }`}
           >
             <div className="flex items-start justify-between gap-3">
@@ -970,6 +1202,17 @@ function CalendarPage({ command, onSelectDay }) {
             <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-600">
               {dayTypes[day.dayType]?.label || "Custom"} · {number(day.capacity, 1)}x capacity
             </div>
+            {day.isToday && (
+              <div className="mt-3 flex gap-1">
+                {day.timeBlocks.blocks.filter((block) => block.active && !block.is_break).map((block) => (
+                  <span
+                    key={block.key}
+                    className={`h-2 flex-1 rounded-full ${block.actual >= block.target ? "bg-emerald-400" : block.isCurrent ? "bg-indigo-500" : "bg-slate-200"}`}
+                    title={`${block.name}: ${number(block.actual)} / ${number(block.target, 1)}`}
+                  />
+                ))}
+              </div>
+            )}
             {day.notes && <p className="mt-3 line-clamp-2 text-sm font-semibold text-slate-500">{day.notes}</p>}
           </button>
         ))}
@@ -1110,25 +1353,73 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
         <button type="button" onClick={() => saveIncentive(newIncentive(workspace.plan.id))} className="rounded-2xl bg-purple-600 px-4 py-3 font-black text-white">
           Add incentive
         </button>
+        {!command.incentives.length && (
+          <div className="mt-4 rounded-3xl bg-purple-50 p-5 text-sm font-bold text-purple-800">
+            If you add a reward, this page will track your progress toward it.
+          </div>
+        )}
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
         {command.incentives.map((item) => (
-          <div key={item.id} className="rounded-[2rem] bg-white p-5 shadow-card">
-            <IncentiveMiniEditor incentive={item} onChange={saveIncentive} onDelete={() => removeIncentive(item.id)} />
-            <div className="mt-4">
-              <Progress value={item.progress} tone="purple" />
-              <div className="mt-2 text-sm font-bold text-slate-500">
-                {number(item.current, 1)} / {number(item.target, 1)} · {item.status.replaceAll("_", " ")}
-              </div>
-            </div>
-          </div>
+          <IncentiveCard key={item.id} incentive={item} onSave={saveIncentive} onDelete={() => removeIncentive(item.id)} />
         ))}
       </div>
     </div>
   );
 }
 
+function IncentiveCard({ incentive, onSave, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="overflow-hidden rounded-[2rem] bg-white shadow-card">
+      <div className="bg-gradient-to-br from-purple-600 to-amber-400 p-1">
+        <div className="rounded-[1.75rem] bg-white p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-2xl font-black">{incentive.title}</div>
+              <p className="mt-2 line-clamp-2 text-sm font-semibold text-slate-500">{incentive.description || "Reward progress tracked automatically."}</p>
+            </div>
+            <Badge tone={incentive.status === "achieved" ? "ahead" : incentive.status === "locked" ? "neutral" : "on_track"}>
+              {incentive.status.replaceAll("_", " ")}
+            </Badge>
+          </div>
+          <Progress value={incentive.progress} tone="purple" />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm font-bold text-slate-500">
+            <span>{incentive.incentive_type.replaceAll("_", " ")}</span>
+            <span>{number(incentive.current, 1)} / {number(incentive.target, 1)}</span>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" onClick={() => setEditing(!editing)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-black">
+              {editing ? "Close" : "Edit"}
+            </button>
+            {incentive.status === "achieved" && (
+              <button type="button" onClick={() => onSave({ ...incentive, status: "claimed" })} className="rounded-2xl bg-purple-600 px-4 py-2 text-sm font-black text-white">
+                Claim
+              </button>
+            )}
+            <button type="button" onClick={onDelete} className="rounded-2xl bg-red-50 px-4 py-2 text-sm font-black text-red-700">
+              Delete
+            </button>
+          </div>
+          {editing && (
+            <div className="mt-4 rounded-3xl bg-slate-50 p-4">
+              <IncentiveMiniEditor incentive={incentive} onChange={onSave} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage({ user, workspace, saveSettings }) {
+  const [blocks, setBlocks] = useState(normalizeTimeBlocks(workspace.settings.time_blocks_config));
+  useEffect(() => setBlocks(normalizeTimeBlocks(workspace.settings.time_blocks_config)), [workspace.settings.time_blocks_config]);
+
+  function updateBlock(key, changes) {
+    setBlocks((current) => current.map((block) => (block.key === key ? { ...block, ...changes } : block)));
+  }
+
   return (
     <div className="grid gap-5">
       <Card title="Account and app settings" icon={Settings}>
@@ -1167,6 +1458,34 @@ function SettingsPage({ user, workspace, saveSettings }) {
           <div>Charts: Recharts</div>
         </div>
       </Card>
+      <Card title="Daily time blocks" icon={Clock}>
+        <p className="mb-5 text-sm font-semibold text-slate-500">
+          Edit how today's goal is split. Breaks can stay visible without receiving a target.
+        </p>
+        <div className="grid gap-3">
+          {blocks.map((block) => (
+            <div key={block.key} className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:grid-cols-[1fr_0.8fr_0.8fr_0.6fr_0.6fr_auto]">
+              <Field label="Name" value={block.name} onChange={(v) => updateBlock(block.key, { name: v })} />
+              <Field label="Start" type="time" value={block.start_time} onChange={(v) => updateBlock(block.key, { start_time: v })} />
+              <Field label="End" type="time" value={block.end_time} onChange={(v) => updateBlock(block.key, { end_time: v })} />
+              <Field label="Share" type="number" value={block.target_share} onChange={(v) => updateBlock(block.key, { target_share: v })} />
+              <Field label="Weight" type="number" value={block.capacity_weight} onChange={(v) => updateBlock(block.key, { capacity_weight: v })} />
+              <label className="flex items-end gap-2 pb-3 text-sm font-black text-slate-600">
+                <input type="checkbox" checked={block.active} onChange={(event) => updateBlock(block.key, { active: event.target.checked })} className="h-5 w-5 accent-indigo-600" />
+                Active
+              </label>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" onClick={() => saveSettings({ time_blocks_config: blocks })} className="rounded-2xl bg-slate-950 px-5 py-3 font-black text-white">
+            Save time blocks
+          </button>
+          <button type="button" onClick={() => setBlocks(defaultTimeBlocks)} className="rounded-2xl border border-slate-200 px-5 py-3 font-black text-slate-600">
+            Reset defaults
+          </button>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -1174,6 +1493,7 @@ function SettingsPage({ user, workspace, saveSettings }) {
 function DayEditor({ day, command, onClose, onSave }) {
   const override = command.dayOverrides[day.date] || {};
   const entry = command.entriesByDate[day.date] || {};
+  const [blockDrafts, setBlockDrafts] = useState(() => blockDraftsFromDay(day));
   const [draft, setDraft] = useState({
     sales_count: entry.sales_count || day.actual || 0,
     sales_notes: entry.notes || "",
@@ -1192,6 +1512,9 @@ function DayEditor({ day, command, onClose, onSave }) {
       capacity_weight: dayTypes[value]?.weight ?? current.capacity_weight,
       include_in_calculations: value !== "off",
     }));
+  }
+  function updateBlock(key, changes) {
+    setBlockDrafts((current) => current.map((block) => (block.key === key ? { ...block, ...changes } : block)));
   }
 
   return (
@@ -1221,10 +1544,38 @@ function DayEditor({ day, command, onClose, onSave }) {
           <Field label="Sales notes" type="textarea" value={draft.sales_notes} onChange={(v) => setDraft({ ...draft, sales_notes: v })} />
           <Field label="Schedule notes" type="textarea" value={draft.day_notes} onChange={(v) => setDraft({ ...draft, day_notes: v })} />
         </div>
+        <div className="mt-5 rounded-[1.5rem] bg-slate-50 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-black uppercase tracking-wide text-slate-500">Time blocks</div>
+              <div className="text-sm font-bold text-slate-600">
+                Total: {number(blockDrafts.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0))} / {number(day.plannedTarget, 1)}
+              </div>
+            </div>
+            <Badge tone={statusTone(day.timeBlocks?.message || day.status)}>{day.status}</Badge>
+          </div>
+          <div className="grid gap-3">
+            {blockDrafts.map((block) => (
+              <div key={block.key} className="grid gap-3 rounded-2xl bg-white p-3 md:grid-cols-[1.1fr_0.7fr_0.7fr_1.4fr]">
+                <div className="min-w-0">
+                  <div className="truncate font-black">{block.name}</div>
+                  <div className="text-xs font-bold text-slate-500">{block.start_time} - {block.end_time}</div>
+                </div>
+                <Field label="Target" type="number" value={block.target_sales ?? block.target ?? 0} onChange={(v) => updateBlock(block.key, { target_sales: v, target: Number(v) })} />
+                <Field label="Actual" type="number" value={block.actual_sales ?? block.actual ?? 0} onChange={(v) => updateBlock(block.key, { actual_sales: v })} />
+                <Field label="Notes" value={block.notes || ""} onChange={(v) => updateBlock(block.key, { notes: v })} />
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="mt-5 rounded-3xl bg-indigo-50 p-4 text-sm font-bold text-indigo-800">
           If you hit {number(Number(draft.sales_count || 0) + Math.max(0, command.salesNeededToday), 1)} today, your remaining daily pace moves to about {number(command.requiredPerWorkday, 1)}/day.
         </div>
-        <button type="button" onClick={() => onSave(draft)} className="mt-5 w-full rounded-2xl bg-slate-950 px-5 py-4 font-black text-white">
+        <button
+          type="button"
+          onClick={() => onSave({ ...draft, time_blocks: blockDrafts })}
+          className="mt-5 w-full rounded-2xl bg-slate-950 px-5 py-4 font-black text-white"
+        >
           Save day
         </button>
       </div>
@@ -1413,7 +1764,7 @@ function Badge({ tone = "neutral", children }) {
 }
 
 function Progress({ value, tone = "blue" }) {
-  const color = tone === "purple" ? "bg-purple-500" : tone === "white" ? "bg-white" : "bg-indigo-600";
+  const color = tone === "purple" ? "bg-purple-500" : tone === "white" ? "bg-white" : tone === "slate" ? "bg-slate-300" : "bg-indigo-600";
   return (
     <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100">
       <div className={`progress-shine h-full rounded-full ${color} transition-all duration-500`} style={{ width: percent(value) }} />
@@ -1495,6 +1846,29 @@ function IncentiveMiniEditor({ incentive, onChange, onDelete }) {
       {onDelete && <button type="button" onClick={onDelete} className="self-end rounded-2xl bg-red-50 px-4 py-3 font-black text-red-700">Delete</button>}
     </div>
   );
+}
+
+function blockDraftsFromDay(day) {
+  if (!day?.timeBlocks?.blocks) return [];
+  return day.timeBlocks.blocks.map((block) => ({
+    key: block.key,
+    name: block.name,
+    start_time: block.start_time,
+    end_time: block.end_time,
+    active: block.active,
+    is_break: block.is_break,
+    target_share: block.target_share,
+    target: block.target,
+    target_sales: block.target,
+    actual: block.actual,
+    actual_sales: block.actual,
+    notes: block.notes || "",
+    status: block.status,
+    capacity_weight: block.capacity_weight,
+    include_in_calculations: block.status !== "Skipped",
+    isCurrent: block.isCurrent,
+    minutesLeft: block.minutesLeft,
+  }));
 }
 
 function LoadingScreen() {
@@ -1632,4 +2006,12 @@ function upsertLocalByDate(items, next) {
 function upsertLocalById(items, next) {
   const exists = items.some((item) => item.id === next.id);
   return exists ? items.map((item) => (item.id === next.id ? { ...item, ...next } : item)) : [...items, next];
+}
+
+function upsertLocalBlocks(items, nextBlocks) {
+  const keys = new Set(nextBlocks.map((block) => `${block.date}:${block.block_key}`));
+  return [
+    ...items.filter((item) => !keys.has(`${item.date}:${item.block_key}`)),
+    ...nextBlocks,
+  ].sort((a, b) => `${a.date}:${a.start_time}`.localeCompare(`${b.date}:${b.start_time}`));
 }

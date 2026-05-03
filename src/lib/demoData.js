@@ -1,4 +1,5 @@
 import { addDays, todayISO, toISO, weekStart, weekEnd } from "./dates";
+import { defaultTimeBlocks } from "./goalEngine";
 
 export function makeId(prefix) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -29,6 +30,7 @@ export function blankPlan() {
       catchup_preference: "balanced",
       theme_preference: "system",
       default_week_start_day: 1,
+      time_blocks_config: defaultTimeBlocks,
     },
     weeks: [],
     goalPeriods: [],
@@ -68,6 +70,7 @@ export function demoWorkspace() {
       catchup_preference: "balanced",
       theme_preference: "system",
       default_week_start_day: 1,
+      time_blocks_config: defaultTimeBlocks,
     },
     weeks: [
       {
@@ -121,6 +124,7 @@ export function demoWorkspace() {
       entry(-2, 1, "Half day."),
       entry(-1, 2, ""),
     ],
+    timeBlockEntries: [],
     incentives: [
       incentive("new-shoes", "New shoes", "20 sales reward", "sales_milestone", 20, 120),
       incentive("dinner", "Nice dinner", "50 sales milestone", "sales_milestone", 50, 180),

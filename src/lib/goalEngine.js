@@ -23,6 +23,49 @@ export const dayTypes = {
   custom: { label: "Custom", weight: 1, color: "violet" },
 };
 
+export const defaultTimeBlocks = [
+  {
+    key: "morning",
+    name: "Morning",
+    start_time: "09:00",
+    end_time: "12:00",
+    active: true,
+    is_break: false,
+    capacity_weight: 1,
+    target_share: 1,
+  },
+  {
+    key: "break",
+    name: "Break",
+    start_time: "12:00",
+    end_time: "13:00",
+    active: false,
+    is_break: true,
+    capacity_weight: 0,
+    target_share: 0,
+  },
+  {
+    key: "afternoon",
+    name: "Afternoon",
+    start_time: "13:00",
+    end_time: "16:00",
+    active: true,
+    is_break: false,
+    capacity_weight: 1,
+    target_share: 1,
+  },
+  {
+    key: "evening",
+    name: "Evening Push",
+    start_time: "16:00",
+    end_time: "20:00",
+    active: true,
+    is_break: false,
+    capacity_weight: 1,
+    target_share: 1,
+  },
+];
+
 export function buildCommandCenter(workspace) {
   if (!workspace?.plan) return null;
   const plan = workspace.plan;
@@ -30,15 +73,18 @@ export function buildCommandCenter(workspace) {
   const today = todayISO();
   const weekStartDay = Number(settings.default_week_start_day ?? 1);
   const entriesByDate = Object.fromEntries((workspace.salesEntries || []).map((entry) => [entry.date, entry]));
+  const timeBlockEntries = workspace.timeBlockEntries || [];
+  const timeBlocksByDate = groupTimeBlocks(timeBlockEntries);
   const dayOverrides = Object.fromEntries((workspace.calendarDays || []).map((day) => [day.date, day]));
   const normalWorkdays = settings.normal_workdays || [1, 2, 3, 4, 5, 6];
+  const timeBlocksConfig = normalizeTimeBlocks(settings.time_blocks_config);
   const seasonDates = datesBetween(plan.start_date, plan.end_date);
   const activeEnd = minISO(today, plan.end_date);
   const currentWeekStart = toISO(weekStart(parseISO(today), weekStartDay));
   const currentWeekEnd = toISO(weekEnd(parseISO(today), weekStartDay));
   const currentMonthStart = toISO(monthStart(parseISO(today)));
   const currentMonthEnd = toISO(monthEnd(parseISO(today)));
-  const salesInRange = sumSales(plan.start_date, plan.end_date, entriesByDate);
+  const salesInRange = sumSales(plan.start_date, plan.end_date, entriesByDate, timeBlocksByDate);
   const outsideSales = (workspace.salesEntries || [])
     .filter((entry) => entry.date < plan.start_date || entry.date > plan.end_date)
     .reduce((sum, entry) => sum + Number(entry.sales_count || 0), 0);
@@ -59,18 +105,18 @@ export function buildCommandCenter(workspace) {
   const expectedByToday = baselineCapacity > 0 ? (Number(plan.total_goal || 0) * elapsedCapacity) / baselineCapacity : 0;
   const aheadBehind = completed - expectedByToday;
   const paceStatus = getPaceStatus(completed, expectedByToday, remaining, remainingWorkCapacity, requiredPerWorkday, plan);
-  const workedDates = seasonDates.filter((date) => historicalWeight(date, today, normalWorkdays, dayOverrides, entriesByDate) > 0);
+  const workedDates = seasonDates.filter((date) => historicalWeight(date, today, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate) > 0);
   const workedCapacity = workedDates.reduce(
-    (sum, date) => sum + historicalWeight(date, today, normalWorkdays, dayOverrides, entriesByDate),
+    (sum, date) => sum + historicalWeight(date, today, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate),
     0,
   );
-  const entrySalesInHistory = sumSales(plan.start_date, activeEnd, entriesByDate);
+  const entrySalesInHistory = sumSales(plan.start_date, activeEnd, entriesByDate, timeBlocksByDate);
   const avgPerWorkedDay = workedCapacity > 0 ? entrySalesInHistory / workedCapacity : 0;
   const afterToday = toISO(addDays(parseISO(today), 1));
   const futureCapacity = afterToday <= plan.end_date ? sumCapacity(afterToday, plan.end_date, normalWorkdays, dayOverrides) : 0;
   const projectedFinish = completed + avgPerWorkedDay * futureCapacity;
   const currentWeek = getWeekRange(workspace, currentWeekStart, currentWeekEnd, plan.default_weekly_goal);
-  const currentWeekActual = sumSales(currentWeek.week_start, currentWeek.week_end, entriesByDate);
+  const currentWeekActual = sumSales(currentWeek.week_start, currentWeek.week_end, entriesByDate, timeBlocksByDate);
   const currentWeekRemaining = Math.max(0, Number(currentWeek.weekly_goal || 0) - currentWeekActual);
   const currentWeekFutureStart = maxISO(today, currentWeek.week_start);
   const currentWeekCapacity =
@@ -81,7 +127,7 @@ export function buildCommandCenter(workspace) {
   const todayCapacity = capacityForDate(today, normalWorkdays, dayOverrides);
   const salesNeededToday =
     today >= plan.start_date && today <= plan.end_date && todayCapacity > 0
-      ? Math.max(0, requiredPerWorkday * todayCapacity - saleCount(today, entriesByDate))
+      ? Math.max(0, requiredPerWorkday * todayCapacity - saleCount(today, entriesByDate, timeBlocksByDate))
       : 0;
   const dayPlans = seasonDates.map((date) =>
     buildDayPlan(date, {
@@ -91,13 +137,16 @@ export function buildCommandCenter(workspace) {
       normalWorkdays,
       dayOverrides,
       entriesByDate,
+      timeBlocksByDate,
+      timeBlocksConfig,
     }),
   );
-  const bestDay = workedDates.reduce((best, date) => (saleCount(date, entriesByDate) > saleCount(best, entriesByDate) ? date : best), workedDates[0]);
-  const worstDay = workedDates.reduce((worst, date) => (saleCount(date, entriesByDate) < saleCount(worst, entriesByDate) ? date : worst), workedDates[0]);
-  const zeroSaleDays = workedDates.filter((date) => saleCount(date, entriesByDate) === 0).length;
-  const currentStreak = getCurrentStreak(today, plan.start_date, normalWorkdays, dayOverrides, entriesByDate);
-  const weeks = buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entriesByDate);
+  const todayPlan = dayPlans.find((day) => day.date === today) || null;
+  const bestDay = workedDates.reduce((best, date) => (saleCount(date, entriesByDate, timeBlocksByDate) > saleCount(best, entriesByDate, timeBlocksByDate) ? date : best), workedDates[0]);
+  const worstDay = workedDates.reduce((worst, date) => (saleCount(date, entriesByDate, timeBlocksByDate) < saleCount(worst, entriesByDate, timeBlocksByDate) ? date : worst), workedDates[0]);
+  const zeroSaleDays = workedDates.filter((date) => saleCount(date, entriesByDate, timeBlocksByDate) === 0).length;
+  const currentStreak = getCurrentStreak(today, plan.start_date, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate);
+  const weeks = buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate);
   const incentives = evaluateIncentives(workspace.incentives || [], {
     completed,
     currentStreak,
@@ -128,8 +177,12 @@ export function buildCommandCenter(workspace) {
     plan,
     settings,
     entriesByDate,
+    timeBlocksByDate,
+    timeBlockEntries,
+    timeBlocksConfig,
     dayOverrides,
     dayPlans,
+    todayPlan,
     weeks,
     incentives,
     nextIncentive,
@@ -179,7 +232,15 @@ export function buildDayPlan(date, context) {
       : date >= context.today
         ? context.requiredPerWorkday * capacity
         : context.baselineDailyTarget * capacity;
-  const actual = Number(entry?.sales_count || 0);
+  const timeBlocks = buildTimeBlockPlan({
+    date,
+    dailyTarget: plannedTarget,
+    entries: context.timeBlocksByDate[date] || [],
+    config: context.timeBlocksConfig,
+    now: new Date(),
+  });
+  const hasBlockEntries = (context.timeBlocksByDate[date] || []).length > 0;
+  const actual = hasBlockEntries ? timeBlocks.totalActual : Number(entry?.sales_count || 0);
   const delta = actual - plannedTarget;
   const dayType = override?.day_type || (capacity === 0 ? "off" : "normal");
   const status = getDayStatus({ date, today: context.today, dayType, capacity, actual, plannedTarget });
@@ -193,6 +254,7 @@ export function buildDayPlan(date, context) {
     delta,
     status,
     notes: entry?.notes || override?.notes || "",
+    timeBlocks,
     include: override?.include_in_calculations !== false,
     isPast: historical,
     isToday: date === context.today,
@@ -217,23 +279,25 @@ function baselineCapacityForDate(date, normalWorkdays, dayOverrides) {
   return parsed && normalWorkdays.includes(parsed.getDay()) ? 1 : 0;
 }
 
-function historicalWeight(date, today, normalWorkdays, dayOverrides, entriesByDate) {
+function historicalWeight(date, today, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate) {
   if (date > today) return 0;
   const override = dayOverrides[date];
   if (override?.day_type === "off" || override?.include_in_calculations === false) return 0;
   if (override?.day_type === "missed") return 1;
   if (override) return Number(override.capacity_weight ?? 1);
-  if (saleCount(date, entriesByDate) > 0) return 1;
+  if (saleCount(date, entriesByDate, timeBlocksByDate) > 0) return 1;
   const parsed = parseISO(date);
   return parsed && normalWorkdays.includes(parsed.getDay()) ? 1 : 0;
 }
 
-function saleCount(date, entriesByDate) {
+function saleCount(date, entriesByDate, timeBlocksByDate = {}) {
+  const blockEntries = timeBlocksByDate[date] || [];
+  if (blockEntries.length) return blockEntries.reduce((sum, entry) => sum + Number(entry.actual_sales || 0), 0);
   return Number(entriesByDate[date]?.sales_count || 0);
 }
 
-function sumSales(start, end, entriesByDate) {
-  return datesBetween(start, end).reduce((sum, date) => sum + saleCount(date, entriesByDate), 0);
+function sumSales(start, end, entriesByDate, timeBlocksByDate = {}) {
+  return datesBetween(start, end).reduce((sum, date) => sum + saleCount(date, entriesByDate, timeBlocksByDate), 0);
 }
 
 function sumCapacity(start, end, normalWorkdays, dayOverrides) {
@@ -271,13 +335,13 @@ function getDayStatus({ date, today, dayType, capacity, actual, plannedTarget })
   return "Critical";
 }
 
-function getCurrentStreak(today, seasonStart, normalWorkdays, dayOverrides, entriesByDate) {
+function getCurrentStreak(today, seasonStart, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate) {
   let streak = 0;
   for (let cursor = parseISO(today); toISO(cursor) >= seasonStart; cursor = addDays(cursor, -1)) {
     const date = toISO(cursor);
-    const weight = historicalWeight(date, today, normalWorkdays, dayOverrides, entriesByDate);
+    const weight = historicalWeight(date, today, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate);
     if (weight === 0) continue;
-    if (saleCount(date, entriesByDate) > 0) streak += 1;
+    if (saleCount(date, entriesByDate, timeBlocksByDate) > 0) streak += 1;
     else break;
   }
   return streak;
@@ -297,7 +361,7 @@ function getWeekRange(workspace, start, end, defaultGoal) {
   );
 }
 
-function buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entriesByDate) {
+function buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate) {
   const plan = workspace.plan;
   const ranges = [];
   let cursor = weekStart(parseISO(plan.start_date), weekStartDay);
@@ -317,7 +381,7 @@ function buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entri
   return [...unique.values()]
     .sort((a, b) => a.week_start.localeCompare(b.week_start))
     .map((week) => {
-      const actual = sumSales(week.week_start, week.week_end, entriesByDate);
+      const actual = sumSales(week.week_start, week.week_end, entriesByDate, timeBlocksByDate);
       const remaining = Math.max(0, Number(week.weekly_goal || 0) - actual);
       const today = todayISO();
       const remainingStart = maxISO(today, week.week_start);
@@ -416,5 +480,157 @@ function buildCharts(dayPlans, weeks, completed, plan) {
     actual: week.actual,
     goal: Number(week.weekly_goal || 0),
   }));
-  return { salesByDay, goalLine, weekly, projected: [{ name: "Projection", projected: completed, goal: plan.total_goal }] };
+  const blockTotals = new Map();
+  dayPlans.forEach((day) => {
+    day.timeBlocks.blocks.forEach((block) => {
+      if (block.is_break) return;
+      const current = blockTotals.get(block.name) || { block: block.name, actual: 0, target: 0 };
+      current.actual += Number(block.actual || 0);
+      current.target += Number(block.target || 0);
+      blockTotals.set(block.name, current);
+    });
+  });
+  return {
+    salesByDay,
+    goalLine,
+    weekly,
+    timeBlocks: [...blockTotals.values()].map((item) => ({
+      ...item,
+      actual: Number(item.actual.toFixed(1)),
+      target: Number(item.target.toFixed(1)),
+    })),
+    projected: [{ name: "Projection", projected: completed, goal: plan.total_goal }],
+  };
+}
+
+export function normalizeTimeBlocks(config) {
+  if (!Array.isArray(config) || !config.length) return defaultTimeBlocks;
+  const byKey = new Map(config.map((block) => [block.key, block]));
+  const merged = defaultTimeBlocks.map((fallback) => ({ ...fallback, ...(byKey.get(fallback.key) || {}) }));
+  config.forEach((block) => {
+    if (!merged.some((item) => item.key === block.key)) merged.push(block);
+  });
+  return merged.map((block) => ({
+    ...block,
+    active: Boolean(block.active),
+    is_break: Boolean(block.is_break),
+    capacity_weight: Number(block.capacity_weight ?? 1),
+    target_share: Math.max(0, Number(block.target_share ?? block.capacity_weight ?? 1)),
+  }));
+}
+
+export function buildTimeBlockPlan({ date, dailyTarget, entries, config, now = new Date() }) {
+  const blocks = normalizeTimeBlocks(config);
+  const entryByKey = Object.fromEntries(entries.map((entry) => [entry.block_key, entry]));
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const today = todayISO();
+  const isToday = date === today;
+  const activeSelling = blocks.filter((block) => block.active && !block.is_break && block.target_share > 0);
+  const totalShare = activeSelling.reduce((sum, block) => sum + Number(block.target_share || 0), 0) || 1;
+  const originalTargets = Object.fromEntries(
+    blocks.map((block) => [
+      block.key,
+      block.active && !block.is_break ? (Number(dailyTarget || 0) * Number(block.target_share || 0)) / totalShare : 0,
+    ]),
+  );
+  const pastActual = blocks.reduce((sum, block) => {
+    const entry = entryByKey[block.key];
+    const actual = Number(entry?.actual_sales || 0);
+    const isPast = date < today || (isToday && blockEndMinutes(block) <= nowMinutes);
+    return sum + (isPast ? actual : 0);
+  }, 0);
+  const adjustableBlocks = blocks.filter((block) => {
+    const entry = entryByKey[block.key];
+    const isSkipped = entry?.status === "skipped" || entry?.include_in_calculations === false;
+    const isFutureOrCurrent = date > today || (isToday && blockEndMinutes(block) > nowMinutes);
+    return block.active && !block.is_break && !isSkipped && isFutureOrCurrent;
+  });
+  const remainingTarget = Math.max(0, Number(dailyTarget || 0) - pastActual);
+  const remainingShare = adjustableBlocks.reduce((sum, block) => sum + Number(block.target_share || 0), 0) || 1;
+  let roundedRemaining = Math.round(remainingTarget);
+
+  const enriched = blocks.map((block) => {
+    const entry = entryByKey[block.key] || {};
+    const actual = Number(entry.actual_sales || 0);
+    const isCurrent = isToday && nowMinutes >= blockStartMinutes(block) && nowMinutes < blockEndMinutes(block);
+    const isPast = date < today || (isToday && blockEndMinutes(block) <= nowMinutes);
+    const isFuture = date > today || (isToday && blockStartMinutes(block) > nowMinutes);
+    const isSkipped = entry.status === "skipped" || entry.include_in_calculations === false;
+    let target = Number(entry.target_sales ?? originalTargets[block.key] ?? 0);
+    if (adjustableBlocks.some((item) => item.key === block.key)) {
+      target = (remainingTarget * Number(block.target_share || 0)) / remainingShare;
+      const rounded = Math.max(0, Math.round(target));
+      target = roundedRemaining > 0 ? Math.min(roundedRemaining, rounded) : 0;
+      roundedRemaining -= target;
+    }
+    const remaining = Math.max(0, target - actual);
+    return {
+      ...block,
+      target,
+      originalTarget: originalTargets[block.key] || 0,
+      actual,
+      remaining,
+      notes: entry.notes || "",
+      status: blockStatus({ block, isCurrent, isPast, isFuture, isSkipped, actual, target }),
+      isCurrent,
+      isPast,
+      isFuture,
+      minutesLeft: isCurrent ? Math.max(0, blockEndMinutes(block) - nowMinutes) : 0,
+    };
+  });
+
+  const totalActual = enriched.reduce((sum, block) => sum + Number(block.actual || 0), 0);
+  const currentBlock = enriched.find((block) => block.isCurrent) || null;
+  const nextBlock = enriched.find((block) => !block.is_break && block.active && block.isFuture) || null;
+  return {
+    blocks: enriched,
+    totalActual,
+    totalTarget: Number(dailyTarget || 0),
+    totalRemaining: Math.max(0, Number(dailyTarget || 0) - totalActual),
+    currentBlock,
+    nextBlock,
+    message: timeBlockMessage({ dailyTarget, totalActual, currentBlock, nextBlock, blocks: enriched }),
+  };
+}
+
+function groupTimeBlocks(entries) {
+  return entries.reduce((groups, entry) => {
+    groups[entry.date] ||= [];
+    groups[entry.date].push(entry);
+    return groups;
+  }, {});
+}
+
+function blockStartMinutes(block) {
+  return toMinutes(block.start_time);
+}
+
+function blockEndMinutes(block) {
+  return toMinutes(block.end_time);
+}
+
+function toMinutes(value) {
+  const [hours, minutes] = String(value || "00:00").split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function blockStatus({ block, isCurrent, isPast, isSkipped, actual, target }) {
+  if (block.is_break) return isCurrent ? "Break" : "Transition";
+  if (isSkipped) return "Skipped";
+  if (isCurrent) return "Current";
+  if (!isPast) return "Not started";
+  if (actual >= target && target > 0) return actual > target ? "Ahead" : "Complete";
+  if (actual > 0 && target <= 0) return "Ahead";
+  return "Behind";
+}
+
+function timeBlockMessage({ dailyTarget, totalActual, currentBlock, nextBlock, blocks }) {
+  if (totalActual >= Number(dailyTarget || 0) && Number(dailyTarget || 0) > 0) return "You already covered the day. Everything else is bonus.";
+  const firstSelling = blocks.find((block) => block.active && !block.is_break);
+  if (firstSelling && firstSelling.isPast && firstSelling.actual > firstSelling.originalTarget) return "Strong morning. Afternoon target lowered.";
+  if (firstSelling && firstSelling.isPast && firstSelling.actual < firstSelling.originalTarget) return "Morning was light. Afternoon needs a push.";
+  if (currentBlock?.is_break && nextBlock) return `${nextBlock.name} needs ${nextBlock.remaining.toFixed(0)} to keep the day on pace.`;
+  if (currentBlock && !currentBlock.is_break) return `Hit ${currentBlock.remaining.toFixed(0)} before ${currentBlock.end_time} and the next block gets easier.`;
+  if (nextBlock) return `${nextBlock.name} is next: ${nextBlock.remaining.toFixed(0)} sales keeps today moving.`;
+  return "Day review: every extra sale lowers tomorrow's pace.";
 }
