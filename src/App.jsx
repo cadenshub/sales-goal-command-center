@@ -88,7 +88,10 @@ const statusColors = {
   neutral: "bg-slate-100 text-slate-700 ring-slate-200",
 };
 
+const VERSION_CHECK_INTERVAL_MS = 60_000;
+
 export default function App() {
+  useAutoRefreshOnNewBuild();
   const [session, setSession] = useState(null);
   const [workspace, setWorkspace] = useState(null);
   const [page, setPage] = useState("dashboard");
@@ -490,6 +493,47 @@ export default function App() {
       () => deleteIncentive(id),
     );
   }
+}
+
+function useAutoRefreshOnNewBuild() {
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    let active = true;
+    let currentBuildId = null;
+
+    async function readVersion() {
+      try {
+        const response = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const version = await response.json();
+        if (!active || !version?.buildId) return;
+        if (!currentBuildId) {
+          currentBuildId = version.buildId;
+          return;
+        }
+        if (version.buildId !== currentBuildId) {
+          window.location.reload();
+        }
+      } catch {
+        // Version checks should never interrupt sales entry.
+      }
+    }
+
+    function checkWhenVisible() {
+      if (document.visibilityState === "visible") readVersion();
+    }
+
+    readVersion();
+    const timer = window.setInterval(checkWhenVisible, VERSION_CHECK_INTERVAL_MS);
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    window.addEventListener("focus", checkWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+      window.removeEventListener("focus", checkWhenVisible);
+    };
+  }, []);
 }
 
 function ConfigRequired() {
