@@ -130,19 +130,24 @@ export function buildCommandCenter(workspace) {
     today >= plan.start_date && today <= plan.end_date && todayCapacity > 0
       ? Math.max(0, requiredPerWorkday * todayCapacity - saleCount(today, entriesByDate, timeBlocksByDate))
       : 0;
-  const dayPlans = seasonDates.map((date) =>
-    buildDayPlan(date, {
-      today,
-      requiredPerWorkday,
-      baselineDailyTarget: baselineCapacity > 0 ? Number(plan.total_goal || 0) / baselineCapacity : 0,
-      normalWorkdays,
-      dayOverrides,
-      entriesByDate,
-      timeBlocksByDate,
-      timeBlocksConfig,
-    }),
-  );
-  const todayPlan = dayPlans.find((day) => day.date === today) || null;
+  const dayPlanContext = {
+    today,
+    requiredPerWorkday,
+    baselineDailyTarget: baselineCapacity > 0 ? Number(plan.total_goal || 0) / baselineCapacity : 0,
+    normalWorkdays,
+    dayOverrides,
+    entriesByDate,
+    timeBlocksByDate,
+    timeBlocksConfig,
+  };
+  const dayPlans = seasonDates.map((date) => buildDayPlan(date, dayPlanContext));
+  const todayPlan =
+    dayPlans.find((day) => day.date === today) ||
+    buildDayPlan(today, {
+      ...dayPlanContext,
+      requiredPerWorkday: 0,
+      baselineDailyTarget: 0,
+    });
   const bestDay = workedDates.reduce((best, date) => (saleCount(date, entriesByDate, timeBlocksByDate) > saleCount(best, entriesByDate, timeBlocksByDate) ? date : best), workedDates[0]);
   const worstDay = workedDates.reduce((worst, date) => (saleCount(date, entriesByDate, timeBlocksByDate) < saleCount(worst, entriesByDate, timeBlocksByDate) ? date : worst), workedDates[0]);
   const zeroSaleDays = workedDates.filter((date) => saleCount(date, entriesByDate, timeBlocksByDate) === 0).length;
