@@ -123,3 +123,4 @@ This MVP includes:
 - Recharts charts
 - Supabase-backed saving
 - Vercel deployment path
+Redeploy trigger
