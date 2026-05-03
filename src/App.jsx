@@ -14,7 +14,6 @@ import {
   Settings,
   Sparkles,
   Target,
-  Trophy,
   TrendingUp,
 } from "lucide-react";
 import {
@@ -49,6 +48,7 @@ import {
   upsertSalesEntry,
   upsertSettings,
   upsertTimeBlockEntries,
+  upsertWeeklyConfirmation,
   upsertWeek,
 } from "./lib/repository";
 import { buildCommandCenter, dayTypes, defaultTimeBlocks, normalizeTimeBlocks } from "./lib/goalEngine";
@@ -255,7 +255,15 @@ export default function App() {
           {page === "calendar" && (
             <CalendarPage command={command} onSelectDay={setSelectedDay} />
           )}
-          {page === "weekly" && <WeeklyPlanner command={command} workspace={workspace} saveWeek={saveWeek} removeWeek={removeWeek} saveDay={saveDay} />}
+          {page === "weekly" && (
+            <WeeklyPlanner
+              command={command}
+              saveWeek={saveWeek}
+              removeWeek={removeWeek}
+              saveDay={saveDay}
+              saveWeeklyConfirmation={saveWeeklyConfirmation}
+            />
+          )}
           {page === "goals" && (
             <GoalsPage
               workspace={workspace}
@@ -378,6 +386,38 @@ export default function App() {
     );
   }
 
+  async function saveWeeklyConfirmation(week, draft) {
+    const submitted = Number(week.actual || draft.submitted_sales || 0);
+    const serviced = Number(draft.serviced_accounts || 0);
+    const active = Number(draft.active_accounts || 0);
+    const confirmed = Number(draft.confirmed_sales ?? Math.min(submitted, serviced + active));
+    const payload = {
+      plan_id: workspace.plan.id,
+      week_start: week.week_start,
+      week_end: week.week_end,
+      submitted_sales: submitted,
+      serviced_accounts: serviced,
+      active_accounts: active,
+      confirmed_sales: confirmed,
+      pending_sales: Math.max(0, submitted - confirmed),
+      notes: draft.notes || "",
+      confirmed_at: new Date().toISOString(),
+    };
+    await saveAndPatch(
+      (current) => ({
+        ...current,
+        weeklyConfirmations: upsertLocalConfirmation(current.weeklyConfirmations || [], payload),
+      }),
+      async () => {
+        const saved = await upsertWeeklyConfirmation(payload);
+        setWorkspace((current) => ({
+          ...current,
+          weeklyConfirmations: upsertLocalConfirmation(current.weeklyConfirmations || [], saved),
+        }));
+      },
+    );
+  }
+
   async function removeWeek(id) {
     if (!window.confirm("Delete this weekly override?")) return;
     await saveAndPatch(
@@ -417,12 +457,14 @@ export default function App() {
   }
 
   async function saveIncentive(incentive) {
+    const title = String(incentive.title || "").trim();
+    if (!title) throw new Error("Reward name is required.");
     const payload = {
       ...(incentive.id ? { id: incentive.id } : {}),
       plan_id: workspace.plan.id,
-      title: incentive.title,
-      description: incentive.description || "",
-      incentive_type: incentive.incentive_type,
+      title,
+      description: String(incentive.description || "").trim(),
+      incentive_type: incentive.incentive_type || "sales_milestone",
       target_value: Number(incentive.target_value || 0),
       target_date: incentive.target_date || null,
       related_goal_period_id: incentive.related_goal_period_id || null,
@@ -430,7 +472,10 @@ export default function App() {
       status: incentive.status || "locked",
     };
     await saveAndPatch(
-      (current) => ({ ...current, incentives: upsertLocalById(current.incentives, payload) }),
+      (current) => ({
+        ...current,
+        incentives: payload.id ? upsertLocalById(current.incentives, payload) : current.incentives,
+      }),
       async () => {
         const saved = await upsertIncentive(payload);
         setWorkspace((current) => ({ ...current, incentives: upsertLocalById(current.incentives, saved) }));
@@ -853,36 +898,55 @@ function Dashboard({ command, setPage, onSaveDay }) {
   const completion = command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0;
   return (
     <div className="grid gap-5">
-      <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+      <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
         <TodaySalesCard command={command} onSaveDay={onSaveDay} />
-        <section className="gradient-hero celebrate overflow-hidden rounded-[2rem] p-6 text-white shadow-glow md:p-8">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-black">
-            <Sparkles size={16} /> Command brief
-          </div>
-          <h2 className="text-3xl font-black tracking-tight md:text-4xl">{heroMessage(command)}</h2>
-          <p className="mt-4 text-white/75">
-            Need <strong className="text-white">{number(command.salesNeededToday, 1)}</strong> today,{" "}
-            <strong className="text-white">{number(command.requiredThisWeek, 1)}</strong> per remaining workday this week, and{" "}
-            <strong className="text-white">{number(command.requiredPerWorkday, 1)}</strong> per workday for the season.
-          </p>
-          <div className="mt-6 rounded-3xl bg-white/12 p-5">
-            <div className="text-sm font-bold text-white/70">Season completion</div>
-            <div className="mt-2 text-5xl font-black">{percent(completion)}</div>
-            <Progress value={completion} tone="white" />
-          </div>
-        </section>
+        <div className="grid gap-5">
+          <CoachSummary command={command} />
+          <RewardSummary command={command} setPage={setPage} />
+        </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Stat icon={Target} label="Sales completed" value={number(command.completed)} sub={`${number(command.remaining)} remaining of ${number(command.plan.total_goal)}`} />
-        <Stat icon={Clock} label="Days left" value={number(command.daysRemaining)} sub={`${number(command.remainingWorkCapacity, 1)} weighted workdays`} />
-        <Stat icon={TrendingUp} label="Projected finish" value={number(command.projectedFinish, 1)} sub={`${number(command.projectedFinish - command.plan.total_goal, 1)} vs goal`} />
-        <Stat icon={Trophy} label="Next reward" value={command.nextIncentive?.title || "No reward"} sub={command.nextIncentive ? `${percent(command.nextIncentive.progress)} unlocked` : "Add one on Incentives"} />
+      <section className="grid gap-5 lg:grid-cols-2">
+        <Card title="This week" icon={Calendar}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-bold text-slate-500">{formatRange(command.currentWeek.week_start, command.currentWeek.week_end)}</div>
+              <div className="mt-2 text-3xl font-black">{number(command.currentWeekActual)} / {number(command.currentWeek.weekly_goal)}</div>
+              <div className="mt-1 text-sm font-bold text-slate-500">sales submitted</div>
+            </div>
+            <Badge tone={command.currentWeekRemaining <= 0 ? "ahead" : command.requiredThisWeek > command.plan.max_sales_per_day ? "critical" : "on_track"}>
+              {command.currentWeekRemaining <= 0 ? "Ahead" : "Active"}
+            </Badge>
+          </div>
+          <Progress value={(command.currentWeekActual / Math.max(1, command.currentWeek.weekly_goal)) * 100} />
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <MiniMetric label="Need" value={number(command.currentWeekRemaining, 1)} />
+            <MiniMetric label="Days left" value={number(command.currentWeekCapacity, 1)} />
+            <MiniMetric label="/ workday" value={number(command.requiredThisWeek, 1)} />
+          </div>
+        </Card>
+        <Card title="Season progress" icon={Target}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-4xl font-black">{percent(completion)}</div>
+              <div className="mt-1 text-sm font-bold text-slate-500">
+                {number(command.completed)} of {number(command.plan.total_goal)} sales
+              </div>
+            </div>
+            <Badge tone={command.paceStatus.key}>{command.paceStatus.label}</Badge>
+          </div>
+          <Progress value={completion} />
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <MiniMetric label="Remaining" value={number(command.remaining)} />
+            <MiniMetric label="Workdays" value={number(command.remainingWorkCapacity, 1)} />
+            <MiniMetric label="/ workday" value={number(command.requiredPerWorkday, 1)} />
+          </div>
+        </Card>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
-        <Card title="Actual sales vs goal pace" icon={BarChart3}>
-          <div className="h-80">
+      <section className="hidden gap-5 lg:grid">
+        <Card title="Actual vs goal pace" icon={BarChart3}>
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={command.charts.goalLine}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -896,70 +960,47 @@ function Dashboard({ command, setPage, onSaveDay }) {
             </ResponsiveContainer>
           </div>
         </Card>
-        <CoachCard command={command} />
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-2">
-        <Card title="Time-block performance" icon={Clock}>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={command.charts.timeBlocks}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="block" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="target" fill="#a78bfa" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="actual" fill="#14b8a6" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-        <Card title="Projection" icon={TrendingUp}>
-          <Metric label="Current pace" value={`${number(command.avgPerWorkedDay, 2)} / worked day`} />
-          <Metric label="Projected finish" value={number(command.projectedFinish, 1)} />
-          <Metric label="Goal" value={number(command.plan.total_goal)} />
-          <Metric label="Difference" value={number(command.projectedFinish - command.plan.total_goal, 1)} />
-          <div className="mt-4 rounded-3xl bg-slate-50 p-4 text-sm font-bold text-slate-600">
-            {command.projectedFinish >= command.plan.total_goal
-              ? "You are trending toward the goal. Keep the daily floor intact."
-              : "Projection is short. Use the Today card to create momentum early."}
-          </div>
-        </Card>
-      </section>
-
-      <section className="grid gap-5 lg:grid-cols-3">
-        <Card title="Current week" icon={Calendar}>
-          <Metric label="Week range" value={formatRange(command.currentWeek.week_start, command.currentWeek.week_end)} />
-          <Metric label="Goal" value={number(command.currentWeek.weekly_goal)} />
-          <Metric label="Actual" value={number(command.currentWeekActual)} />
-          <Metric label="Still needed" value={number(command.currentWeekRemaining, 1)} />
-          <Metric label="Required/day" value={number(command.requiredThisWeek, 1)} />
-          <Progress value={(command.currentWeekActual / Math.max(1, command.currentWeek.weekly_goal)) * 100} />
-        </Card>
-        <Card title="Forecast" icon={TrendingUp}>
-          <Metric label="Average / worked day" value={number(command.avgPerWorkedDay, 2)} />
-          <Metric label="Best day" value={command.bestDay ? `${formatDate(command.bestDay)} (${number(command.entriesByDate[command.bestDay]?.sales_count)})` : "None yet"} />
-          <Metric label="Worst day" value={command.worstDay ? `${formatDate(command.worstDay)} (${number(command.entriesByDate[command.worstDay]?.sales_count)})` : "None yet"} />
-          <Metric label="Current streak" value={`${number(command.currentStreak)} days`} />
-          <Metric label="Zero-sale days" value={number(command.zeroSaleDays)} />
-        </Card>
-        <Card title="Next incentive" icon={Gift}>
-          {command.nextIncentive ? (
-            <>
-              <div className="text-2xl font-black">{command.nextIncentive.title}</div>
-              <p className="mt-2 text-sm font-semibold text-slate-500">{command.nextIncentive.description}</p>
-              <Progress value={command.nextIncentive.progress} tone="purple" />
-              <Metric label="Progress" value={`${number(command.nextIncentive.current, 1)} / ${number(command.nextIncentive.target, 1)}`} />
-            </>
-          ) : (
-            <button type="button" onClick={() => setPage("incentives")} className="rounded-2xl bg-purple-600 px-4 py-3 font-black text-white">
-              Add incentives
-            </button>
-          )}
-        </Card>
       </section>
     </div>
+  );
+}
+
+function CoachSummary({ command }) {
+  const message = command.catchup.messages[0] || heroMessage(command);
+  return (
+    <section className="gradient-hero rounded-[2rem] p-5 text-white shadow-glow md:p-6">
+      <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-2 text-xs font-black">
+        <Sparkles size={15} /> Coach
+      </div>
+      <h2 className="text-2xl font-black tracking-tight">{heroMessage(command)}</h2>
+      <p className="mt-3 text-sm font-bold leading-6 text-white/80">{message}</p>
+      <div className="mt-4 rounded-3xl bg-white/12 p-4 text-sm font-bold">
+        Today: {number(command.salesNeededToday, 1)} sales keeps the plan moving.
+      </div>
+    </section>
+  );
+}
+
+function RewardSummary({ command, setPage }) {
+  return (
+    <Card title="Next reward" icon={Gift}>
+      {command.nextIncentive ? (
+        <>
+          <div className="min-w-0 text-2xl font-black break-words">{command.nextIncentive.title}</div>
+          <Progress value={command.nextIncentive.progress} tone="purple" />
+          <div className="mt-3 text-sm font-bold text-slate-500">
+            {number(command.nextIncentive.current, 1)} / {number(command.nextIncentive.target, 1)} complete
+          </div>
+        </>
+      ) : (
+        <div className="grid gap-3">
+          <p className="text-sm font-bold text-slate-500">No reward yet. Add one to make the next milestone more fun.</p>
+          <button type="button" onClick={() => setPage("incentives")} className="rounded-2xl bg-purple-600 px-4 py-3 font-black text-white">
+            Add reward
+          </button>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -968,12 +1009,15 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [notes, setNotes] = useState(today?.notes || "");
   const [manualSales, setManualSales] = useState(today?.actual || 0);
   const [blockDrafts, setBlockDrafts] = useState(() => blockDraftsFromDay(today));
-  const currentBlock = blockDrafts.find((block) => block.isCurrent) || today?.timeBlocks.currentBlock;
+  const [lastQuickAdd, setLastQuickAdd] = useState(null);
+  const visibleBlocks = blockDrafts.filter((block) => block.active && !block.is_break);
+  const currentBlock = visibleBlocks.find((block) => block.isCurrent) || today?.timeBlocks.currentBlock;
 
   useEffect(() => {
     setNotes(today?.notes || "");
     setManualSales(today?.actual || 0);
     setBlockDrafts(blockDraftsFromDay(today));
+    setLastQuickAdd(null);
   }, [today]);
 
   if (!today) return null;
@@ -981,11 +1025,12 @@ function TodaySalesCard({ command, onSaveDay }) {
   const totalActual = blockDrafts.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
   const totalTarget = today.plannedTarget;
   const remaining = Math.max(0, totalTarget - totalActual);
-  const activeBlock = currentBlock || blockDrafts.find((block) => block.active && !block.is_break);
+  const activeBlock = currentBlock && !currentBlock.is_break ? currentBlock : visibleBlocks.find((block) => !block.isPast) || visibleBlocks[0];
 
   function quickAdd(amount, key = activeBlock?.key) {
     if (!key) return;
     setManualSales((value) => Number(value || 0) + amount);
+    setLastQuickAdd({ amount, key });
     setBlockDrafts((current) =>
       current.map((block) =>
         block.key === key
@@ -995,19 +1040,52 @@ function TodaySalesCard({ command, onSaveDay }) {
     );
   }
 
-  async function save() {
-    const currentTotal = blockDrafts.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
-    const diff = Number(manualSales || 0) - currentTotal;
+  function undoLastQuickAdd() {
+    if (!lastQuickAdd) return;
+    setManualSales((value) => Math.max(0, Number(value || 0) - lastQuickAdd.amount));
+    setBlockDrafts((current) =>
+      current.map((block) =>
+        block.key === lastQuickAdd.key
+          ? { ...block, actual_sales: Math.max(0, Number(block.actual_sales || 0) - lastQuickAdd.amount) }
+          : block,
+      ),
+    );
+    setLastQuickAdd(null);
+  }
+
+  async function clearToday() {
+    if (!window.confirm("Clear all sales for today?")) return;
+    const clearedBlocks = blockDrafts.map((block) => ({ ...block, actual_sales: 0 }));
+    setManualSales(0);
+    setBlockDrafts(clearedBlocks);
+    setLastQuickAdd(null);
+    await save(clearedBlocks, 0);
+  }
+
+  async function clearCurrentBlock() {
+    if (!activeBlock) return;
+    if (!window.confirm(`Clear ${activeBlock.name} sales?`)) return;
+    const currentValue = Number(activeBlock.actual_sales || 0);
+    const clearedBlocks = blockDrafts.map((block) => (block.key === activeBlock.key ? { ...block, actual_sales: 0 } : block));
+    setManualSales((value) => Math.max(0, Number(value || 0) - currentValue));
+    setBlockDrafts(clearedBlocks);
+    setLastQuickAdd(null);
+    await save(clearedBlocks, Math.max(0, Number(manualSales || 0) - currentValue));
+  }
+
+  async function save(blocks = blockDrafts, totalOverride = manualSales) {
+    const currentTotal = blocks.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
+    const diff = Number(totalOverride || 0) - currentTotal;
     const blocksToSave =
       diff !== 0 && activeBlock
-        ? blockDrafts.map((block) =>
+        ? blocks.map((block) =>
             block.key === activeBlock.key
               ? { ...block, actual_sales: Math.max(0, Number(block.actual_sales || 0) + diff) }
               : block,
           )
-        : blockDrafts;
+        : blocks;
     await onSaveDay(today.date, {
-      sales_count: manualSales,
+      sales_count: totalOverride,
       sales_notes: notes,
       day_type: today.dayType,
       capacity_weight: today.capacity,
@@ -1067,14 +1145,30 @@ function TodaySalesCard({ command, onSaveDay }) {
             </button>
           ))}
         </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={undoLastQuickAdd}
+            disabled={!lastQuickAdd}
+            className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Undo
+          </button>
+          <button type="button" onClick={clearCurrentBlock} className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white">
+            Clear block
+          </button>
+          <button type="button" onClick={clearToday} className="rounded-2xl bg-red-500/80 px-4 py-3 text-sm font-black text-white">
+            Clear today
+          </button>
+        </div>
       </div>
 
       <div className="mt-5 grid gap-3">
-        {blockDrafts.map((block) => (
+        {visibleBlocks.map((block) => (
           <div
             key={block.key}
             className={`rounded-3xl border p-4 ${
-              block.isCurrent ? "border-indigo-300 bg-indigo-50" : block.is_break ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-white"
+              block.isCurrent ? "border-indigo-300 bg-indigo-50" : "border-slate-200 bg-white"
             }`}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1091,20 +1185,7 @@ function TodaySalesCard({ command, onSaveDay }) {
                   {number(block.actual_sales || 0)} / {number(block.target || 0, 1)} sales
                 </div>
               </div>
-              {!block.is_break && (
-                <div className="flex gap-1">
-                  {[1, 2].map((amount) => (
-                    <button
-                      key={amount}
-                      type="button"
-                      onClick={() => quickAdd(amount, block.key)}
-                      className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-black"
-                    >
-                      +{amount}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {block.key === activeBlock?.key && <div className="text-xs font-black uppercase text-indigo-600">Current</div>}
             </div>
           </div>
         ))}
@@ -1114,7 +1195,7 @@ function TodaySalesCard({ command, onSaveDay }) {
         <Field label="Manual total" type="number" value={manualSales} onChange={setManualSales} />
         <Field label="Notes" value={notes} onChange={setNotes} />
       </div>
-      <button type="button" onClick={save} className="mt-4 w-full rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white shadow-card transition hover:-translate-y-0.5">
+      <button type="button" onClick={() => save()} className="mt-4 w-full rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white shadow-card transition hover:-translate-y-0.5">
         Save today
       </button>
     </section>
@@ -1177,7 +1258,7 @@ function CalendarPage({ command, onSelectDay }) {
             key={day.date}
             type="button"
             onClick={() => onSelectDay(day.date)}
-            className={`min-h-44 rounded-3xl border p-4 text-left shadow-card transition hover:-translate-y-1 hover:shadow-glow ${
+            className={`min-h-36 rounded-3xl border p-4 text-left shadow-card transition hover:-translate-y-1 hover:shadow-glow ${
               day.dayType === "off"
                 ? "border-slate-200 bg-slate-100"
                 : day.isToday
@@ -1190,17 +1271,17 @@ function CalendarPage({ command, onSelectDay }) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-black text-slate-500">{formatDate(day.date, { weekday: "short", year: undefined })}</div>
-                <div className="mt-1 text-xl font-black">{parseISO(day.date).getDate()}</div>
+                <div className="mt-1 text-2xl font-black">{parseISO(day.date).getDate()}</div>
               </div>
               <Badge tone={statusTone(day.status)}>{day.status}</Badge>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <MiniMetric label="Target" value={number(day.plannedTarget, 1)} />
-              <MiniMetric label="Actual" value={number(day.actual)} />
-              <MiniMetric label="Diff" value={number(day.delta, 1)} />
+            <div className="mt-4 rounded-2xl bg-white/70 px-3 py-3">
+              <div className="text-xl font-black">{number(day.actual)} / {number(day.plannedTarget, 1)}</div>
+              <div className="text-xs font-black uppercase tracking-wide text-slate-400">sales</div>
             </div>
-            <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-600">
-              {dayTypes[day.dayType]?.label || "Custom"} · {number(day.capacity, 1)}x capacity
+            <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-600">
+              <span className="truncate">{dayTypes[day.dayType]?.label || "Custom"}</span>
+              <span>{day.capacity > 0 ? `${number(day.capacity, 1)}x` : "Off"}</span>
             </div>
             {day.isToday && (
               <div className="mt-3 flex gap-1">
@@ -1221,9 +1302,11 @@ function CalendarPage({ command, onSelectDay }) {
   );
 }
 
-function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
+function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay, saveWeeklyConfirmation }) {
+  const currentWeek = command.weeks.find((week) => week.week_start === command.currentWeek.week_start && week.week_end === command.currentWeek.week_end) || command.currentWeek;
   return (
     <div className="grid gap-5">
+      <WeeklyConfirmationCard week={currentWeek} onSave={saveWeeklyConfirmation} />
       <Card title="Weekly planner" icon={BarChart3}>
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
@@ -1245,6 +1328,61 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function WeeklyConfirmationCard({ week, onSave }) {
+  const confirmation = week.confirmation || {};
+  const [draft, setDraft] = useState({
+    serviced_accounts: confirmation.serviced_accounts ?? week.actual ?? 0,
+    active_accounts: confirmation.active_accounts ?? 0,
+    confirmed_sales: confirmation.confirmed_sales ?? week.actual ?? 0,
+    notes: confirmation.notes || "",
+  });
+  const pending = Math.max(0, Number(week.actual || 0) - Number(draft.confirmed_sales || 0));
+
+  useEffect(() => {
+    setDraft({
+      serviced_accounts: confirmation.serviced_accounts ?? week.actual ?? 0,
+      active_accounts: confirmation.active_accounts ?? 0,
+      confirmed_sales: confirmation.confirmed_sales ?? week.actual ?? 0,
+      notes: confirmation.notes || "",
+    });
+  }, [week.week_start, week.week_end, week.actual, confirmation.serviced_accounts, confirmation.active_accounts, confirmation.confirmed_sales, confirmation.notes]);
+
+  return (
+    <Card title="End-of-week confirmation" icon={CheckCircle2}>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <MiniMetric label="Submitted" value={number(week.actual)} />
+        <MiniMetric label="Serviced" value={number(draft.serviced_accounts)} />
+        <MiniMetric label="Active" value={number(draft.active_accounts)} />
+        <MiniMetric label="Confirmed" value={number(draft.confirmed_sales)} />
+        <MiniMetric label="Pending" value={number(pending)} />
+      </div>
+      <div className="mt-5 grid gap-4 md:grid-cols-3">
+        <Field label="Serviced accounts" type="number" value={draft.serviced_accounts} onChange={(v) => setDraft({ ...draft, serviced_accounts: v })} />
+        <Field label="Active accounts" type="number" value={draft.active_accounts} onChange={(v) => setDraft({ ...draft, active_accounts: v })} />
+        <Field label="Confirmed sales" type="number" value={draft.confirmed_sales} onChange={(v) => setDraft({ ...draft, confirmed_sales: v })} />
+      </div>
+      <div className="mt-4">
+        <Field label="Confirmation notes" value={draft.notes} onChange={(v) => setDraft({ ...draft, notes: v })} />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setDraft({ ...draft, serviced_accounts: week.actual, active_accounts: 0, confirmed_sales: week.actual })}
+          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black"
+        >
+          Confirm all submitted
+        </button>
+        <button type="button" onClick={() => onSave(week, draft)} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white">
+          Save confirmation
+        </button>
+      </div>
+      <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-600">
+        Weekly goal: {number(week.weekly_goal)}. Confirmed difference: {number(Number(draft.confirmed_sales || 0) - Number(week.weekly_goal || 0), 1)}.
+      </div>
+    </Card>
   );
 }
 
@@ -1347,37 +1485,59 @@ function GoalsPage({ workspace, command, savePlan, saveSettings, saveWeek, remov
 }
 
 function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) {
+  const [editingReward, setEditingReward] = useState(null);
+  const rewards = dedupeById(command.incentives).filter((item) => String(item.title || "").trim());
   return (
     <div className="grid gap-5">
-      <Card title="Rewards and incentives" icon={Gift}>
-        <button type="button" onClick={() => saveIncentive(newIncentive(workspace.plan.id))} className="rounded-2xl bg-purple-600 px-4 py-3 font-black text-white">
-          Add incentive
-        </button>
-        {!command.incentives.length && (
-          <div className="mt-4 rounded-3xl bg-purple-50 p-5 text-sm font-bold text-purple-800">
-            If you add a reward, this page will track your progress toward it.
+      <Card title="Rewards" icon={Gift}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-2xl text-sm font-bold text-slate-500">
+            Keep this simple: set a reward, pick the goal number, and let the app track progress.
+          </p>
+          <button type="button" onClick={() => setEditingReward(newIncentive(workspace.plan.id))} className="rounded-2xl bg-purple-600 px-5 py-3 font-black text-white">
+            Add Reward
+          </button>
+        </div>
+        {!rewards.length && (
+          <div className="mt-5 rounded-3xl bg-purple-50 p-5 text-sm font-bold text-purple-800">
+            No rewards yet. Add your first reward to make hitting your goals more fun.
           </div>
         )}
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
-        {command.incentives.map((item) => (
-          <IncentiveCard key={item.id} incentive={item} onSave={saveIncentive} onDelete={() => removeIncentive(item.id)} />
+        {rewards.map((item) => (
+          <RewardCard
+            key={item.id}
+            incentive={item}
+            onEdit={() => setEditingReward(item)}
+            onClaim={() => saveIncentive({ ...item, status: "claimed" })}
+            onDelete={() => removeIncentive(item.id)}
+          />
         ))}
       </div>
+      {editingReward && (
+        <RewardModal
+          incentive={editingReward}
+          onClose={() => setEditingReward(null)}
+          onSave={async (draft) => {
+            await saveIncentive(draft);
+            setEditingReward(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function IncentiveCard({ incentive, onSave, onDelete }) {
-  const [editing, setEditing] = useState(false);
+function RewardCard({ incentive, onEdit, onClaim, onDelete }) {
   return (
     <div className="overflow-hidden rounded-[2rem] bg-white shadow-card">
       <div className="bg-gradient-to-br from-purple-600 to-amber-400 p-1">
         <div className="rounded-[1.75rem] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="truncate text-2xl font-black">{incentive.title}</div>
-              <p className="mt-2 line-clamp-2 text-sm font-semibold text-slate-500">{incentive.description || "Reward progress tracked automatically."}</p>
+              <div className="break-words text-2xl font-black">{incentive.title}</div>
+              <div className="mt-2 text-sm font-bold capitalize text-slate-500">{incentive.incentive_type.replaceAll("_", " ")}</div>
             </div>
             <Badge tone={incentive.status === "achieved" ? "ahead" : incentive.status === "locked" ? "neutral" : "on_track"}>
               {incentive.status.replaceAll("_", " ")}
@@ -1385,29 +1545,96 @@ function IncentiveCard({ incentive, onSave, onDelete }) {
           </div>
           <Progress value={incentive.progress} tone="purple" />
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm font-bold text-slate-500">
-            <span>{incentive.incentive_type.replaceAll("_", " ")}</span>
             <span>{number(incentive.current, 1)} / {number(incentive.target, 1)}</span>
+            <span>{percent(incentive.progress)}</span>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setEditing(!editing)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-black">
-              {editing ? "Close" : "Edit"}
+            <button type="button" onClick={onEdit} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black">
+              Edit
             </button>
             {incentive.status === "achieved" && (
-              <button type="button" onClick={() => onSave({ ...incentive, status: "claimed" })} className="rounded-2xl bg-purple-600 px-4 py-2 text-sm font-black text-white">
+              <button type="button" onClick={onClaim} className="rounded-2xl bg-purple-600 px-4 py-3 text-sm font-black text-white">
                 Claim
               </button>
             )}
-            <button type="button" onClick={onDelete} className="rounded-2xl bg-red-50 px-4 py-2 text-sm font-black text-red-700">
+            <button type="button" onClick={onDelete} className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-700">
               Delete
             </button>
           </div>
-          {editing && (
-            <div className="mt-4 rounded-3xl bg-slate-50 p-4">
-              <IncentiveMiniEditor incentive={incentive} onChange={onSave} />
-            </div>
-          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function RewardModal({ incentive, onSave, onClose }) {
+  const [draft, setDraft] = useState(() => ({ ...incentive }));
+  const [more, setMore] = useState(Boolean(incentive.description || incentive.reward_value || incentive.target_date));
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    if (isSubmitting) return;
+    const title = String(draft.title || "").trim();
+    if (!title) {
+      setFormError("Reward name is required.");
+      return;
+    }
+    setIsSubmitting(true);
+    setFormError("");
+    try {
+      await onSave({ ...draft, title });
+    } catch (err) {
+      setFormError(err.message);
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/45 sm:place-items-center">
+      <form onSubmit={submit} className="max-h-[92vh] w-full overflow-auto rounded-t-[2rem] bg-white p-5 shadow-glow sm:max-w-xl sm:rounded-[2rem]">
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-black uppercase tracking-wide text-purple-600">Reward</div>
+            <h2 className="text-2xl font-black">{draft.id ? "Edit reward" : "Add reward"}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-2xl bg-slate-100 px-4 py-2 font-black">
+            Cancel
+          </button>
+        </div>
+        <div className="grid gap-4">
+          <Field label="Reward name" value={draft.title} required onChange={(v) => setDraft({ ...draft, title: v })} />
+          <Field
+            label="Reward type"
+            type="select"
+            value={draft.incentive_type}
+            onChange={(v) => setDraft({ ...draft, incentive_type: v })}
+            options={[
+              { value: "sales_milestone", label: "Sales milestone" },
+              { value: "weekly_goal", label: "Weekly goal" },
+              { value: "streak", label: "Streak" },
+              { value: "season_goal", label: "Season goal" },
+              { value: "custom", label: "Custom" },
+            ]}
+          />
+          <Field label="Reward goal" type="number" value={draft.target_value} onChange={(v) => setDraft({ ...draft, target_value: v })} />
+        </div>
+        <button type="button" onClick={() => setMore((value) => !value)} className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700">
+          {more ? "Hide more options" : "More options"}
+        </button>
+        {more && (
+          <div className="mt-4 grid gap-4 rounded-3xl bg-slate-50 p-4">
+            <Field label="Description" type="textarea" value={draft.description || ""} onChange={(v) => setDraft({ ...draft, description: v })} />
+            <Field label="Reward value" type="number" value={draft.reward_value || ""} onChange={(v) => setDraft({ ...draft, reward_value: v })} />
+            <Field label="Target date" type="date" value={draft.target_date || ""} onChange={(v) => setDraft({ ...draft, target_date: v })} />
+          </div>
+        )}
+        {formError && <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{formError}</div>}
+        <button type="submit" disabled={isSubmitting} className="mt-5 w-full rounded-2xl bg-purple-600 px-5 py-4 font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
+          {isSubmitting ? "Saving..." : "Save reward"}
+        </button>
+      </form>
     </div>
   );
 }
@@ -1422,23 +1649,23 @@ function SettingsPage({ user, workspace, saveSettings }) {
 
   return (
     <div className="grid gap-5">
-      <Card title="Account and app settings" icon={Settings}>
+      <Card title="Account / App" icon={Settings}>
         <Metric label="Signed in as" value={user.email} />
         <Metric label="Active plan" value={workspace.plan.name} />
+      </Card>
+
+      <Card title="Work schedule" icon={Calendar}>
+        <WeekdayPicker value={workspace.settings.normal_workdays} onChange={(normal_workdays) => saveSettings({ normal_workdays })} />
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <Field
-            label="Theme preference"
+            label="Week starts on"
             type="select"
-            value={workspace.settings.theme_preference}
-            onChange={(v) => saveSettings({ theme_preference: v })}
-            options={[
-              { value: "system", label: "System" },
-              { value: "light", label: "Light" },
-              { value: "dark", label: "Dark later" },
-            ]}
+            value={workspace.settings.default_week_start_day}
+            onChange={(v) => saveSettings({ default_week_start_day: Number(v) })}
+            options={weekdayOptions}
           />
           <Field
-            label="Catch-up preference"
+            label="Catch-up style"
             type="select"
             value={workspace.settings.catchup_preference}
             onChange={(v) => saveSettings({ catchup_preference: v })}
@@ -1450,26 +1677,18 @@ function SettingsPage({ user, workspace, saveSettings }) {
           />
         </div>
       </Card>
-      <Card title="Free hosting stack" icon={CheckCircle2}>
-        <div className="grid gap-3 text-sm font-bold text-slate-600">
-          <div>Hosting: Vercel Hobby</div>
-          <div>Auth and database: Supabase Free</div>
-          <div>Frontend: React + Vite + Tailwind</div>
-          <div>Charts: Recharts</div>
-        </div>
-      </Card>
-      <Card title="Daily time blocks" icon={Clock}>
+
+      <Card title="Time blocks" icon={Clock}>
         <p className="mb-5 text-sm font-semibold text-slate-500">
           Edit how today's goal is split. Breaks can stay visible without receiving a target.
         </p>
         <div className="grid gap-3">
           {blocks.map((block) => (
-            <div key={block.key} className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:grid-cols-[1fr_0.8fr_0.8fr_0.6fr_0.6fr_auto]">
-              <Field label="Name" value={block.name} onChange={(v) => updateBlock(block.key, { name: v })} />
-              <Field label="Start" type="time" value={block.start_time} onChange={(v) => updateBlock(block.key, { start_time: v })} />
-              <Field label="End" type="time" value={block.end_time} onChange={(v) => updateBlock(block.key, { end_time: v })} />
-              <Field label="Share" type="number" value={block.target_share} onChange={(v) => updateBlock(block.key, { target_share: v })} />
-              <Field label="Weight" type="number" value={block.capacity_weight} onChange={(v) => updateBlock(block.key, { capacity_weight: v })} />
+            <div key={block.key} className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:grid-cols-[1fr_0.8fr_0.8fr_0.7fr_auto]">
+              <Field label="Block name" value={block.name} onChange={(v) => updateBlock(block.key, { name: v })} />
+              <Field label="Start time" type="time" value={block.start_time} onChange={(v) => updateBlock(block.key, { start_time: v })} />
+              <Field label="End time" type="time" value={block.end_time} onChange={(v) => updateBlock(block.key, { end_time: v })} />
+              <Field label="Goal weight" type="number" value={block.target_share} onChange={(v) => updateBlock(block.key, { target_share: v })} />
               <label className="flex items-end gap-2 pb-3 text-sm font-black text-slate-600">
                 <input type="checkbox" checked={block.active} onChange={(event) => updateBlock(block.key, { active: event.target.checked })} className="h-5 w-5 accent-indigo-600" />
                 Active
@@ -1484,6 +1703,26 @@ function SettingsPage({ user, workspace, saveSettings }) {
           <button type="button" onClick={() => setBlocks(defaultTimeBlocks)} className="rounded-2xl border border-slate-200 px-5 py-3 font-black text-slate-600">
             Reset defaults
           </button>
+        </div>
+      </Card>
+
+      <Card title="Display preferences" icon={CheckCircle2}>
+        <Field
+          label="Theme"
+          type="select"
+          value={workspace.settings.theme_preference}
+          onChange={(v) => saveSettings({ theme_preference: v })}
+          options={[
+            { value: "system", label: "System" },
+            { value: "light", label: "Light" },
+            { value: "dark", label: "Dark later" },
+          ]}
+        />
+      </Card>
+
+      <Card title="Danger zone" icon={AlertTriangle}>
+        <div className="rounded-3xl bg-red-50 p-4 text-sm font-bold text-red-700">
+          Destructive account or plan reset controls are intentionally not shown here yet. Use Supabase directly if you need a full wipe.
         </div>
       </Card>
     </div>
@@ -1598,9 +1837,9 @@ function WeekCard({ week, command, saveWeek, removeWeek, saveDay }) {
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         <MiniMetric label="Goal" value={number(week.weekly_goal)} />
-        <MiniMetric label="Actual" value={number(week.actual)} />
+        <MiniMetric label="Submitted" value={number(week.actual)} />
         <MiniMetric label="Need" value={number(week.remaining, 1)} />
-        <MiniMetric label="/day" value={number(week.requiredPerDay, 1)} />
+        <MiniMetric label="Days left" value={number(week.remainingCapacity, 1)} />
       </div>
       <Progress value={week.progress} />
       <div className="mt-4 flex flex-wrap gap-2">
@@ -1632,8 +1871,11 @@ function WeekCard({ week, command, saveWeek, removeWeek, saveDay }) {
             }
             className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold"
           >
-            <span>{formatDate(day.date, { weekday: "short", year: undefined })}</span>
-            <span>{day.dayType === "off" ? "Add workday" : "Mark off"}</span>
+            <span className="min-w-0">
+              <span className="block truncate">{formatDate(day.date, { weekday: "short", year: undefined })}</span>
+              <span className="block text-xs text-slate-400">{number(day.actual)} / {number(day.plannedTarget, 1)} sales</span>
+            </span>
+            <span className="shrink-0">{day.dayType === "off" ? "Add workday" : "Mark off"}</span>
           </button>
         ))}
       </div>
@@ -1688,19 +1930,6 @@ function Section({ title, icon: Icon, children }) {
       </div>
       {children}
     </section>
-  );
-}
-
-function Stat({ icon: Icon, label, value, sub }) {
-  return (
-    <div className="glass-card rounded-[2rem] p-5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-black uppercase tracking-wide text-slate-500">{label}</div>
-        <Icon className="text-indigo-600" size={21} />
-      </div>
-      <div className="mt-4 text-4xl font-black tracking-tight">{value}</div>
-      <div className="mt-2 text-sm font-bold text-slate-500">{sub}</div>
-    </div>
   );
 }
 
@@ -2008,10 +2237,27 @@ function upsertLocalById(items, next) {
   return exists ? items.map((item) => (item.id === next.id ? { ...item, ...next } : item)) : [...items, next];
 }
 
+function dedupeById(items) {
+  const seen = new Map();
+  items.forEach((item) => {
+    if (!item?.id || seen.has(item.id)) return;
+    seen.set(item.id, item);
+  });
+  return [...seen.values()];
+}
+
 function upsertLocalBlocks(items, nextBlocks) {
   const keys = new Set(nextBlocks.map((block) => `${block.date}:${block.block_key}`));
   return [
     ...items.filter((item) => !keys.has(`${item.date}:${item.block_key}`)),
     ...nextBlocks,
   ].sort((a, b) => `${a.date}:${a.start_time}`.localeCompare(`${b.date}:${b.start_time}`));
+}
+
+function upsertLocalConfirmation(items, next) {
+  const key = `${next.week_start}:${next.week_end}`;
+  const exists = items.some((item) => `${item.week_start}:${item.week_end}` === key);
+  return exists
+    ? items.map((item) => (`${item.week_start}:${item.week_end}` === key ? { ...item, ...next } : item))
+    : [...items, next];
 }

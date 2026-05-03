@@ -75,6 +75,7 @@ export function buildCommandCenter(workspace) {
   const entriesByDate = Object.fromEntries((workspace.salesEntries || []).map((entry) => [entry.date, entry]));
   const timeBlockEntries = workspace.timeBlockEntries || [];
   const timeBlocksByDate = groupTimeBlocks(timeBlockEntries);
+  const weeklyConfirmationsByRange = groupWeeklyConfirmations(workspace.weeklyConfirmations || []);
   const dayOverrides = Object.fromEntries((workspace.calendarDays || []).map((day) => [day.date, day]));
   const normalWorkdays = settings.normal_workdays || [1, 2, 3, 4, 5, 6];
   const timeBlocksConfig = normalizeTimeBlocks(settings.time_blocks_config);
@@ -146,7 +147,15 @@ export function buildCommandCenter(workspace) {
   const worstDay = workedDates.reduce((worst, date) => (saleCount(date, entriesByDate, timeBlocksByDate) < saleCount(worst, entriesByDate, timeBlocksByDate) ? date : worst), workedDates[0]);
   const zeroSaleDays = workedDates.filter((date) => saleCount(date, entriesByDate, timeBlocksByDate) === 0).length;
   const currentStreak = getCurrentStreak(today, plan.start_date, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate);
-  const weeks = buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate);
+  const weeks = buildWeeks(
+    workspace,
+    weekStartDay,
+    normalWorkdays,
+    dayOverrides,
+    entriesByDate,
+    timeBlocksByDate,
+    weeklyConfirmationsByRange,
+  );
   const incentives = evaluateIncentives(workspace.incentives || [], {
     completed,
     currentStreak,
@@ -184,6 +193,7 @@ export function buildCommandCenter(workspace) {
     dayPlans,
     todayPlan,
     weeks,
+    weeklyConfirmationsByRange,
     incentives,
     nextIncentive,
     currentWeek,
@@ -361,7 +371,15 @@ function getWeekRange(workspace, start, end, defaultGoal) {
   );
 }
 
-function buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate) {
+function buildWeeks(
+  workspace,
+  weekStartDay,
+  normalWorkdays,
+  dayOverrides,
+  entriesByDate,
+  timeBlocksByDate,
+  weeklyConfirmationsByRange,
+) {
   const plan = workspace.plan;
   const ranges = [];
   let cursor = weekStart(parseISO(plan.start_date), weekStartDay);
@@ -388,6 +406,7 @@ function buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entri
       const capacity = remainingStart <= week.week_end ? sumCapacity(remainingStart, week.week_end, normalWorkdays, dayOverrides) : 0;
       const requiredPerDay = capacity > 0 ? remaining / capacity : 0;
       const progress = Number(week.weekly_goal || 0) > 0 ? (actual / Number(week.weekly_goal || 0)) * 100 : 100;
+      const confirmation = weeklyConfirmationsByRange[`${week.week_start}:${week.week_end}`] || null;
       return {
         ...week,
         actual,
@@ -395,9 +414,19 @@ function buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entri
         remainingCapacity: capacity,
         requiredPerDay,
         progress,
+        confirmation,
+        confirmedSales: confirmation ? Number(confirmation.confirmed_sales || 0) : null,
+        pendingSales: confirmation ? Number(confirmation.pending_sales || 0) : Math.max(0, actual),
         status: requiredPerDay > Number(workspace.plan.max_sales_per_day || 0) ? "Overloaded" : progress >= 100 ? "Ahead" : "Active",
       };
     });
+}
+
+function groupWeeklyConfirmations(confirmations) {
+  return confirmations.reduce((groups, item) => {
+    groups[`${item.week_start}:${item.week_end}`] = item;
+    return groups;
+  }, {});
 }
 
 function evaluateIncentives(incentives, metrics) {

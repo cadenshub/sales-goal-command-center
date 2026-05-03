@@ -51,6 +51,7 @@ export async function loadWorkspace(userId) {
     { data: calendarDays, error: calendarDaysError },
     { data: salesEntries, error: salesEntriesError },
     { data: timeBlockEntries, error: timeBlockEntriesError },
+    { data: weeklyConfirmations, error: weeklyConfirmationsError },
     { data: incentives, error: incentivesError },
     { data: savedFilters, error: filtersError },
   ] = await Promise.all([
@@ -60,6 +61,7 @@ export async function loadWorkspace(userId) {
     supabase.from("calendar_days").select("*").eq("plan_id", plan.id).order("date"),
     supabase.from("sales_entries").select("*").eq("plan_id", plan.id).order("date"),
     supabase.from("time_block_entries").select("*").eq("plan_id", plan.id).order("date"),
+    supabase.from("weekly_confirmations").select("*").eq("plan_id", plan.id).order("week_start"),
     supabase.from("incentives").select("*").eq("plan_id", plan.id).order("target_value"),
     supabase.from("saved_filters").select("*").eq("plan_id", plan.id).order("created_at"),
   ]);
@@ -71,6 +73,7 @@ export async function loadWorkspace(userId) {
     calendarDaysError,
     salesEntriesError,
     timeBlockEntriesError?.code === "42P01" ? null : timeBlockEntriesError,
+    weeklyConfirmationsError?.code === "42P01" ? null : weeklyConfirmationsError,
     incentivesError,
     filtersError,
   ].filter(Boolean);
@@ -91,6 +94,7 @@ export async function loadWorkspace(userId) {
     calendarDays: calendarDays || [],
     salesEntries: salesEntries || [],
     timeBlockEntries: timeBlockEntries || [],
+    weeklyConfirmations: weeklyConfirmations || [],
     incentives: incentives || [],
     savedFilters: savedFilters || [],
   };
@@ -104,6 +108,16 @@ export async function upsertTimeBlockEntries(entries) {
     .select();
   if (error) throw error;
   return data || [];
+}
+
+export async function upsertWeeklyConfirmation(confirmation) {
+  const { data, error } = await supabase
+    .from("weekly_confirmations")
+    .upsert(confirmation, { onConflict: "plan_id,week_start,week_end" })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 export async function createWorkspace(userId, draft) {
