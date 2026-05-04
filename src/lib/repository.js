@@ -33,6 +33,13 @@ export async function ensureProfile(user) {
 }
 
 export async function loadWorkspace(userId) {
+  const workspace = await loadCriticalWorkspace(userId);
+  if (!workspace) return null;
+  const optional = await loadOptionalWorkspace(workspace.plan.id);
+  return { ...workspace, ...optional };
+}
+
+export async function loadCriticalWorkspace(userId) {
   const { data: plan, error: planError } = await supabase
     .from("plans")
     .select("*")
@@ -46,24 +53,14 @@ export async function loadWorkspace(userId) {
 
   const [
     settings,
-    weeks,
-    goalPeriods,
     calendarDays,
     salesEntries,
     timeBlockEntries,
-    weeklyConfirmations,
-    incentives,
-    savedFilters,
   ] = await Promise.all([
     requiredQuery("settings", supabase.from("settings").select("*").eq("plan_id", plan.id).maybeSingle()),
-    requiredQuery("weeks", supabase.from("weeks").select("*").eq("plan_id", plan.id).order("week_start")),
-    requiredQuery("goal_periods", supabase.from("goal_periods").select("*").eq("plan_id", plan.id).order("start_date")),
     requiredQuery("calendar_days", supabase.from("calendar_days").select("*").eq("plan_id", plan.id).order("date")),
     requiredQuery("sales_entries", supabase.from("sales_entries").select("*").eq("plan_id", plan.id).order("date")),
     optionalQuery("time_block_entries", supabase.from("time_block_entries").select("*").eq("plan_id", plan.id).order("date"), []),
-    optionalQuery("weekly_confirmations", supabase.from("weekly_confirmations").select("*").eq("plan_id", plan.id).order("week_start"), []),
-    optionalQuery("incentives", supabase.from("incentives").select("*").eq("plan_id", plan.id).order("target_value"), []),
-    optionalQuery("saved_filters", supabase.from("saved_filters").select("*").eq("plan_id", plan.id).order("created_at"), []),
   ]);
 
   return {
@@ -76,14 +73,34 @@ export async function loadWorkspace(userId) {
       default_week_start_day: 1,
       time_blocks_config: null,
     },
-    weeks: weeks || [],
-    goalPeriods: goalPeriods || [],
+    weeks: [],
+    goalPeriods: [],
     calendarDays: calendarDays || [],
     salesEntries: salesEntries || [],
     timeBlockEntries: timeBlockEntries || [],
+    weeklyConfirmations: [],
+    incentives: [],
+    savedFilters: [],
+    optionalLoaded: false,
+  };
+}
+
+export async function loadOptionalWorkspace(planId) {
+  const [weeks, goalPeriods, weeklyConfirmations, incentives, savedFilters] = await Promise.all([
+    optionalQuery("weeks", supabase.from("weeks").select("*").eq("plan_id", planId).order("week_start"), []),
+    optionalQuery("goal_periods", supabase.from("goal_periods").select("*").eq("plan_id", planId).order("start_date"), []),
+    optionalQuery("weekly_confirmations", supabase.from("weekly_confirmations").select("*").eq("plan_id", planId).order("week_start"), []),
+    optionalQuery("incentives", supabase.from("incentives").select("*").eq("plan_id", planId).order("target_value"), []),
+    optionalQuery("saved_filters", supabase.from("saved_filters").select("*").eq("plan_id", planId).order("created_at"), []),
+  ]);
+
+  return {
+    weeks: weeks || [],
+    goalPeriods: goalPeriods || [],
     weeklyConfirmations: weeklyConfirmations || [],
     incentives: incentives || [],
     savedFilters: savedFilters || [],
+    optionalLoaded: true,
   };
 }
 

@@ -39,7 +39,8 @@ import {
   deleteWeek,
   ensureProfile,
   getSession,
-  loadWorkspace,
+  loadCriticalWorkspace,
+  loadOptionalWorkspace,
   onAuthChange,
   signIn,
   signOut,
@@ -112,6 +113,7 @@ export default function App() {
   const [startupError, setStartupError] = useState("");
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const loadedUserIdRef = useRef(null);
+  const loadingUserIdRef = useRef(null);
   const loadRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -127,11 +129,13 @@ export default function App() {
       if (!nextSession?.user) {
         setWorkspace(null);
         loadedUserIdRef.current = null;
+        loadingUserIdRef.current = null;
         setStartupError("");
         setLoading(false);
         return;
       }
       if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") return;
+      if (loadingUserIdRef.current === nextSession.user.id) return;
       if (loadedUserIdRef.current !== nextSession.user.id) await bootstrapWorkspace(nextSession.user);
     });
     return () => {
@@ -156,6 +160,9 @@ export default function App() {
         setLoading(false);
       }
     }
+    // The startup effect intentionally owns the first auth subscription only.
+    // bootstrapWorkspace reads fresh refs/state and should not resubscribe auth on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -175,23 +182,38 @@ export default function App() {
   async function bootstrapWorkspace(user) {
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
+    loadingUserIdRef.current = user.id;
     setLoading(true);
     setLoadingTimedOut(false);
     setError("");
     setStartupError("");
     try {
-      await withTimeout(ensureProfile(user), "User profile setup");
-      const nextWorkspace = await withTimeout(loadWorkspace(user.id), "Workspace data load");
+      ensureProfile(user).catch((err) => console.warn("User profile sync failed", err));
+      const nextWorkspace = await withTimeout(loadCriticalWorkspace(user.id), "Workspace data load");
       if (loadRequestIdRef.current !== requestId) return;
       setWorkspace(nextWorkspace);
       loadedUserIdRef.current = user.id;
+      if (nextWorkspace?.plan?.id) loadOptionalWorkspaceInBackground(nextWorkspace.plan.id, requestId);
     } catch (err) {
       if (loadRequestIdRef.current !== requestId) return;
       console.error("Workspace load failed", err);
       setStartupError(readableError(err));
       setWorkspace(null);
     } finally {
-      if (loadRequestIdRef.current === requestId) setLoading(false);
+      if (loadRequestIdRef.current === requestId) {
+        loadingUserIdRef.current = null;
+        setLoading(false);
+      }
+    }
+  }
+
+  async function loadOptionalWorkspaceInBackground(planId, requestId = loadRequestIdRef.current) {
+    try {
+      const optional = await loadOptionalWorkspace(planId);
+      if (loadRequestIdRef.current !== requestId) return;
+      setWorkspace((current) => (current?.plan?.id === planId ? mergeOptionalWorkspace(current, optional) : current));
+    } catch (err) {
+      console.warn("Optional workspace data failed to load", err);
     }
   }
 
@@ -607,6 +629,26 @@ function withTimeout(promise, label) {
 
 function readableError(error) {
   return error?.message || "Something went wrong while loading the app.";
+}
+
+function mergeOptionalWorkspace(current, optional) {
+  return {
+    ...current,
+    ...optional,
+    weeks: mergeByStableKey(current.weeks, optional.weeks, (item) => item.id || `${item.week_start}:${item.week_end}`),
+    goalPeriods: mergeByStableKey(current.goalPeriods, optional.goalPeriods, (item) => item.id || `${item.title}:${item.start_date}:${item.end_date}`),
+    weeklyConfirmations: mergeByStableKey(current.weeklyConfirmations, optional.weeklyConfirmations, (item) => item.id || `${item.week_start}:${item.week_end}`),
+    incentives: mergeByStableKey(current.incentives, optional.incentives, (item) => item.id || item.title),
+    savedFilters: mergeByStableKey(current.savedFilters, optional.savedFilters, (item) => item.id || item.title),
+    optionalLoaded: true,
+  };
+}
+
+function mergeByStableKey(current = [], incoming = [], getKey) {
+  const merged = new Map();
+  incoming.forEach((item) => merged.set(getKey(item), item));
+  current.forEach((item) => merged.set(getKey(item), item));
+  return [...merged.values()];
 }
 
 function ConfigRequired() {
