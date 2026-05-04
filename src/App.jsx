@@ -1054,6 +1054,7 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [manualSales, setManualSales] = useState(today?.actual || 0);
   const [blockDrafts, setBlockDrafts] = useState(() => blockDraftsFromDay(today));
   const [lastQuickAdd, setLastQuickAdd] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
   const visibleBlocks = blockDrafts.filter((block) => block.active && !block.is_break);
   const currentBlock = visibleBlocks.find((block) => block.isCurrent) || today?.timeBlocks.currentBlock;
 
@@ -1062,6 +1063,7 @@ function TodaySalesCard({ command, onSaveDay }) {
     setManualSales(today?.actual || 0);
     setBlockDrafts(blockDraftsFromDay(today));
     setLastQuickAdd(null);
+    setEditOpen(false);
   }, [today]);
 
   if (!today) return null;
@@ -1166,6 +1168,43 @@ function TodaySalesCard({ command, onSaveDay }) {
         <MiniMetric label="Left" value={number(remaining, 1)} />
       </div>
 
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <button
+          type="button"
+          onClick={() => setEditOpen((value) => !value)}
+          className="min-h-12 rounded-2xl bg-slate-100 px-3 py-3 text-sm font-black text-slate-800"
+        >
+          {editOpen ? "Close" : "Edit"}
+        </button>
+        <button
+          type="button"
+          onClick={undoLastQuickAdd}
+          disabled={!lastQuickAdd}
+          className="min-h-12 rounded-2xl bg-slate-100 px-3 py-3 text-sm font-black text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Undo
+        </button>
+        <button
+          type="button"
+          onClick={clearToday}
+          className="min-h-12 rounded-2xl bg-red-50 px-3 py-3 text-sm font-black text-red-700"
+        >
+          Clear
+        </button>
+      </div>
+
+      {editOpen && (
+        <div className="mt-4 rounded-3xl bg-slate-50 p-4">
+          <div className="grid gap-3 md:grid-cols-[0.4fr_1fr]">
+            <Field label="Manual total" type="number" value={manualSales} onChange={setManualSales} />
+            <Field label="Notes" value={notes} onChange={setNotes} />
+          </div>
+          <button type="button" onClick={() => save()} className="mt-4 w-full rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white shadow-card">
+            Save changes
+          </button>
+        </div>
+      )}
+
       <div className="mt-5 rounded-3xl bg-slate-950 p-4 text-white">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -1235,10 +1274,6 @@ function TodaySalesCard({ command, onSaveDay }) {
         ))}
       </div>
 
-      <div className="mt-5 grid gap-3 md:grid-cols-[0.4fr_1fr]">
-        <Field label="Manual total" type="number" value={manualSales} onChange={setManualSales} />
-        <Field label="Notes" value={notes} onChange={setNotes} />
-      </div>
       <button type="button" onClick={() => save()} className="mt-4 w-full rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white shadow-card transition hover:-translate-y-0.5">
         Save today
       </button>
