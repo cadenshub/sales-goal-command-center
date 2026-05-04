@@ -237,11 +237,13 @@ export default function App() {
     try {
       await saveAction();
       setSaveState("Saved");
+      return true;
     } catch (err) {
       setError(err.message);
       setSaveState("Save failed");
       if (options.rollbackOnError !== false && previousWorkspace) setWorkspace(previousWorkspace);
       if (options.refetchOnError && session?.user) bootstrapWorkspace(session.user);
+      return false;
     }
   }
 
@@ -428,7 +430,7 @@ export default function App() {
       sales_count: Number(blockTotal ?? payload.sales_count ?? 0),
       notes: payload.sales_notes || "",
     };
-    await saveAndPatch(
+    return await saveAndPatch(
       (current) => ({
         ...current,
         calendarDays: upsertLocalByDate(current.calendarDays, day),
@@ -1167,7 +1169,10 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [logAmount, setLogAmount] = useState(1);
   const [saleType, setSaleType] = useState("doors");
   const [selectedBlockKey, setSelectedBlockKey] = useState("");
+  const [logStatus, setLogStatus] = useState("idle");
+  const [donePulse, setDonePulse] = useState(false);
   const lastTodaySyncKeyRef = useRef("");
+  const feedbackTimerRef = useRef(null);
   const visibleBlocks = blockDrafts.filter((block) => block.active && !block.is_break);
   const currentBlock = visibleBlocks.find((block) => block.isCurrent) || today?.timeBlocks.currentBlock;
   const todaySyncKey = today
@@ -1187,8 +1192,12 @@ function TodaySalesCard({ command, onSaveDay }) {
     setLogAmount(1);
     setSaleType("doors");
     setSelectedBlockKey("");
+    setLogStatus("idle");
+    setDonePulse(false);
     lastTodaySyncKeyRef.current = "";
   }, [today?.date]);
+
+  useEffect(() => () => window.clearTimeout(feedbackTimerRef.current), []);
 
   useEffect(() => {
     if (lastTodaySyncKeyRef.current === todaySyncKey) return;
@@ -1222,11 +1231,14 @@ function TodaySalesCard({ command, onSaveDay }) {
       : remaining <= 0
         ? "Daily goal covered. Extra sales count."
         : `${number(remaining, 1)} sales left for today's goal.`;
+  const logButtonText =
+    logStatus === "saving" ? "Saving..." : logStatus === "added" ? "Added ✓" : logStatus === "error" ? "Try again" : "Log Sales";
 
   async function logSale() {
     const key = selectedBlock?.key;
-    if (!key) return;
+    if (!key || logStatus === "saving") return;
     const amount = Math.max(1, Number(logAmount || 1));
+    setLogStatus("saving");
     const updatedBlocks = blockDrafts.map((block) => {
       if (block.key !== key) return block;
       const typeBreakdown = normalizeSaleTypeBreakdown(block.type_breakdown, Number(block.actual_sales || 0));
@@ -1244,7 +1256,24 @@ function TodaySalesCard({ command, onSaveDay }) {
     const updatedTotal = updatedBlocks.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
     setManualSales(updatedTotal);
     setBlockDrafts(updatedBlocks);
-    await save(updatedBlocks, updatedTotal, key);
+    try {
+      const saved = await save(updatedBlocks, updatedTotal, key);
+      window.clearTimeout(feedbackTimerRef.current);
+      if (saved === false) {
+        setLogStatus("error");
+      } else {
+        setLogStatus("added");
+        setDonePulse(true);
+      }
+      feedbackTimerRef.current = window.setTimeout(() => {
+        setLogStatus("idle");
+        setDonePulse(false);
+      }, 1200);
+    } catch {
+      setLogStatus("error");
+      window.clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = window.setTimeout(() => setLogStatus("idle"), 1400);
+    }
   }
 
   async function clearToday() {
@@ -1276,7 +1305,7 @@ function TodaySalesCard({ command, onSaveDay }) {
               : block,
           )
         : blocks;
-    await onSaveDay(today.date, {
+    return await onSaveDay(today.date, {
       sales_count: totalOverride,
       sales_notes: notes,
       day_type: today.dayType,
@@ -1317,7 +1346,12 @@ function TodaySalesCard({ command, onSaveDay }) {
       <p className="mt-2 text-sm font-bold text-slate-500">{dayHelpText}</p>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <CompactMetric label="Done" value={number(totalActual)} />
+        <CompactMetric
+          label="Done"
+          value={number(totalActual)}
+          valueClassName={donePulse ? "text-emerald-600 drop-shadow-sm" : ""}
+          className={donePulse ? "ring-2 ring-emerald-200 bg-emerald-50" : ""}
+        />
         <CompactMetric label="Goal" value={number(totalTarget, 1)} />
       </div>
 
@@ -1327,7 +1361,7 @@ function TodaySalesCard({ command, onSaveDay }) {
           <button
             type="button"
             onClick={() => setAddSalesOpen((value) => !value)}
-            className="rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-card transition hover:bg-indigo-700"
+            className="rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-card transition hover:bg-indigo-700 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
           >
             {addSalesOpen ? "Close" : "Add Sales"}
           </button>
@@ -1344,8 +1378,8 @@ function TodaySalesCard({ command, onSaveDay }) {
                     key={block.key}
                     type="button"
                     onClick={() => setSelectedBlockKey(block.key)}
-                    className={`flex min-h-10 items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-black transition ${
-                      selected ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"
+                    className={`flex min-h-10 items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-black transition active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 ${
+                      selected ? "bg-slate-950 text-white shadow-card" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                     }`}
                   >
                     <Icon size={14} />
@@ -1364,8 +1398,8 @@ function TodaySalesCard({ command, onSaveDay }) {
                     key={option.key}
                     type="button"
                     onClick={() => setSaleType(option.key)}
-                    className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-black transition ${
-                      selected ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700"
+                    className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-black transition active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 ${
+                      selected ? "bg-indigo-600 text-white shadow-card ring-2 ring-indigo-200" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                     }`}
                   >
                     <Icon size={16} />
@@ -1381,8 +1415,8 @@ function TodaySalesCard({ command, onSaveDay }) {
                   key={amount}
                   type="button"
                   onClick={() => setLogAmount(amount)}
-                  className={`min-h-10 rounded-xl text-sm font-black ${
-                    Number(logAmount) === amount ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700"
+                  className={`min-h-10 rounded-xl text-sm font-black transition active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${
+                    Number(logAmount) === amount ? "bg-emerald-600 text-white shadow-card ring-2 ring-emerald-200" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                   }`}
                 >
                   {amount}
@@ -1398,10 +1432,18 @@ function TodaySalesCard({ command, onSaveDay }) {
                 onChange={(event) => setLogAmount(Math.max(1, Number(event.target.value || 1)))}
                 className="min-h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-center font-black outline-none focus:border-emerald-400"
               />
-              <button type="button" onClick={logSale} className="min-h-11 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-card">
-                Log Sales
+              <button
+                type="button"
+                onClick={logSale}
+                disabled={logStatus === "saving"}
+                className={`min-h-11 min-w-[104px] rounded-xl px-4 py-2 text-sm font-black text-white shadow-card transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${
+                  logStatus === "added" ? "bg-emerald-500" : logStatus === "error" ? "bg-red-600" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {logButtonText}
               </button>
             </div>
+            {logStatus === "error" && <div className="mt-2 text-xs font-black text-red-600">Couldn’t save. Try again.</div>}
           </div>
         )}
       </div>
@@ -1409,16 +1451,16 @@ function TodaySalesCard({ command, onSaveDay }) {
       <button
         type="button"
         onClick={() => setShowAllBlocks((value) => !value)}
-        className="mt-3 w-full rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700"
+        className="mt-3 w-full rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-200 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
       >
         {showAllBlocks ? "Hide full day" : "View full day"}
       </button>
 
       {showAllBlocks && (
       <div className="mt-3 grid gap-2">
-        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-3">
-          <SaleTypeMiniStat icon={Home} label="Doors" value={dayTypeTotals.doors} />
-          <SaleTypeMiniStat icon={Phone} label="Phone" value={dayTypeTotals.phone} />
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-indigo-50/60 p-3 ring-1 ring-indigo-100">
+          <SaleTypeMiniStat icon={Home} label="Doors" value={dayTypeTotals.doors} tone="emerald" />
+          <SaleTypeMiniStat icon={Phone} label="Phone" value={dayTypeTotals.phone} tone="indigo" />
         </div>
         {visibleBlocks.map((block) => {
           const Icon = blockIcon(block);
@@ -1432,7 +1474,7 @@ function TodaySalesCard({ command, onSaveDay }) {
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
+                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
                     <Icon size={16} />
                   </div>
                   <div className="min-w-0">
@@ -1445,15 +1487,15 @@ function TodaySalesCard({ command, onSaveDay }) {
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <SaleTypeMiniStat icon={Home} label="Doors" value={breakdown.doors} />
-                <SaleTypeMiniStat icon={Phone} label="Phone" value={breakdown.phone} />
+                <SaleTypeMiniStat icon={Home} label="Doors" value={breakdown.doors} tone="emerald" />
+                <SaleTypeMiniStat icon={Phone} label="Phone" value={breakdown.phone} tone="indigo" />
               </div>
               <Progress value={(Number(block.actual_sales || 0) / Math.max(1, Number(block.target || 0))) * 100} tone="purple" />
               <button
                 type="button"
                 onClick={() => clearBlock(block)}
                 disabled={Number(block.actual_sales || 0) <= 0}
-                className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 transition hover:bg-red-50 hover:text-red-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300"
               >
                 Clear {block.name}
               </button>
@@ -1463,7 +1505,7 @@ function TodaySalesCard({ command, onSaveDay }) {
       </div>
       )}
       <div className="mt-3">
-        <button type="button" onClick={clearToday} className="w-full rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700">
+        <button type="button" onClick={clearToday} className="w-full rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700 transition hover:bg-red-100 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300">
           Clear day
         </button>
       </div>
@@ -2288,11 +2330,11 @@ function MiniMetric({ label, value }) {
   );
 }
 
-function CompactMetric({ label, value }) {
+function CompactMetric({ label, value, className = "", valueClassName = "" }) {
   return (
-    <div className="rounded-2xl bg-slate-50 px-3 py-3">
+    <div className={`rounded-2xl bg-slate-50 px-3 py-3 transition-all duration-500 ${className}`}>
       <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="mt-1 text-2xl font-black">{value}</div>
+      <div className={`mt-1 text-2xl font-black transition-colors duration-500 ${valueClassName}`}>{value}</div>
     </div>
   );
 }
@@ -2379,13 +2421,19 @@ function blockDraftsFromDay(day) {
   }));
 }
 
-function SaleTypeMiniStat({ icon: Icon, label, value }) {
+function SaleTypeMiniStat({ icon: Icon, label, value, tone = "slate" }) {
+  const toneClass =
+    tone === "emerald"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+      : tone === "indigo"
+        ? "bg-indigo-50 text-indigo-700 ring-indigo-100"
+        : "bg-white text-slate-700 ring-slate-200";
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-xl bg-white px-2.5 py-2 ring-1 ring-slate-200">
-      <Icon size={14} className="shrink-0 text-slate-500" />
+    <div className={`flex min-w-0 items-center gap-2 rounded-xl px-2.5 py-2 ring-1 ${toneClass}`}>
+      <Icon size={14} className="shrink-0 opacity-80" />
       <div className="min-w-0">
-        <div className="truncate text-[11px] font-black uppercase tracking-wide text-slate-400">{label}</div>
-        <div className="text-sm font-black text-slate-900">{number(value)}</div>
+        <div className="truncate text-[11px] font-black uppercase tracking-wide opacity-60">{label}</div>
+        <div className="text-sm font-black">{number(value)}</div>
       </div>
     </div>
   );
