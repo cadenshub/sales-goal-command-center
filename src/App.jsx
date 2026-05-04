@@ -1049,17 +1049,22 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [editOpen, setEditOpen] = useState(false);
   const [showAllBlocks, setShowAllBlocks] = useState(false);
   const [logAmount, setLogAmount] = useState(1);
+  const [selectedBlockKey, setSelectedBlockKey] = useState("");
   const visibleBlocks = blockDrafts.filter((block) => block.active && !block.is_break);
   const currentBlock = visibleBlocks.find((block) => block.isCurrent) || today?.timeBlocks.currentBlock;
+
+  useEffect(() => {
+    setEditOpen(false);
+    setShowAllBlocks(false);
+    setLogAmount(1);
+    setSelectedBlockKey("");
+    setLastQuickAdd(null);
+  }, [today?.date]);
 
   useEffect(() => {
     setNotes(today?.notes || "");
     setManualSales(today?.actual || 0);
     setBlockDrafts(blockDraftsFromDay(today));
-    setLastQuickAdd(null);
-    setEditOpen(false);
-    setShowAllBlocks(false);
-    setLogAmount(1);
   }, [today]);
 
   if (!today) return null;
@@ -1068,12 +1073,15 @@ function TodaySalesCard({ command, onSaveDay }) {
   const totalTarget = today.plannedTarget;
   const remaining = Math.max(0, totalTarget - totalActual);
   const activeBlock = currentBlock && !currentBlock.is_break ? currentBlock : visibleBlocks.find((block) => !block.isPast) || visibleBlocks[0];
+  const selectedBlock = visibleBlocks.find((block) => block.key === selectedBlockKey) || activeBlock || visibleBlocks[0];
   const activeBlockActual = Number(activeBlock?.actual_sales || 0);
   const activeBlockTarget = Number(activeBlock?.target || 0);
   const activeBlockRemaining = Math.max(0, activeBlockTarget - activeBlockActual);
+  const selectedBlockActual = Number(selectedBlock?.actual_sales || 0);
+  const selectedBlockTarget = Number(selectedBlock?.target || 0);
 
   async function logSale() {
-    const key = activeBlock?.key;
+    const key = selectedBlock?.key;
     if (!key) return;
     const amount = Math.max(1, Number(logAmount || 1));
     const updatedBlocks = blockDrafts.map((block) =>
@@ -1112,14 +1120,14 @@ function TodaySalesCard({ command, onSaveDay }) {
   }
 
   async function clearCurrentBlock() {
-    if (!activeBlock) return;
-    if (!window.confirm(`Clear ${activeBlock.name} sales?`)) return;
-    const currentValue = Number(activeBlock.actual_sales || 0);
-    const clearedBlocks = blockDrafts.map((block) => (block.key === activeBlock.key ? { ...block, actual_sales: 0 } : block));
+    if (!selectedBlock) return;
+    if (!window.confirm(`Clear ${selectedBlock.name} sales?`)) return;
+    const currentValue = Number(selectedBlock.actual_sales || 0);
+    const clearedBlocks = blockDrafts.map((block) => (block.key === selectedBlock.key ? { ...block, actual_sales: 0 } : block));
     setManualSales((value) => Math.max(0, Number(value || 0) - currentValue));
     setBlockDrafts(clearedBlocks);
     setLastQuickAdd(null);
-    await save(clearedBlocks, Math.max(0, Number(manualSales || 0) - currentValue), activeBlock.key);
+    await save(clearedBlocks, Math.max(0, Number(manualSales || 0) - currentValue), selectedBlock.key);
   }
 
   async function save(blocks = blockDrafts, totalOverride = manualSales, activeKey = activeBlock?.key) {
@@ -1152,9 +1160,26 @@ function TodaySalesCard({ command, onSaveDay }) {
 
   return (
     <section className="glass-card rounded-3xl p-4 md:p-5">
+      <div className="rounded-3xl bg-slate-950 p-4 text-white">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-black uppercase tracking-wide text-white/55">Current phase</div>
+            <div className="mt-1 text-xl font-black">{activeBlock?.name || "Day review"}</div>
+          </div>
+          <div className="text-right text-sm font-bold text-white/75">
+            {activeBlock?.minutesLeft ? `${Math.floor(activeBlock.minutesLeft / 60)}h ${activeBlock.minutesLeft % 60}m left` : "Final results"}
+          </div>
+        </div>
+        <Progress value={(activeBlockActual / Math.max(1, activeBlockTarget)) * 100} tone="white" />
+        <div className="mt-3 grid grid-cols-2 gap-3 text-sm font-bold text-white/75">
+          <div>Logged: <span className="text-white">{number(activeBlockActual)}</span></div>
+          <div className="text-right">Needed: <span className="text-white">{number(activeBlockRemaining || remaining, 1)}</span></div>
+        </div>
+      </div>
+
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
+          <div className="mt-4 text-sm font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
           <h2 className="mt-1 text-xl font-black tracking-tight">{formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}</h2>
         </div>
         <Badge tone={statusTone(today.status)}>{today.status}</Badge>
@@ -1168,29 +1193,80 @@ function TodaySalesCard({ command, onSaveDay }) {
         <CompactMetric label="Done" value={number(totalActual)} />
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <button
-          type="button"
-          onClick={() => setEditOpen((value) => !value)}
-          className="min-h-12 rounded-2xl bg-slate-100 px-3 py-3 text-sm font-black text-slate-800"
-        >
-          {editOpen ? "Close" : "Edit"}
-        </button>
-        <button
-          type="button"
-          onClick={undoLastQuickAdd}
-          disabled={!lastQuickAdd}
-          className="min-h-12 rounded-2xl bg-slate-100 px-3 py-3 text-sm font-black text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Undo
-        </button>
-        <button
-          type="button"
-          onClick={clearToday}
-          className="min-h-12 rounded-2xl bg-red-50 px-3 py-3 text-sm font-black text-red-700"
-        >
-          Clear
-        </button>
+      <div className="mt-4 rounded-3xl bg-slate-50 p-4">
+        <div className="text-sm font-black uppercase tracking-wide text-slate-500">Log sales</div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {visibleBlocks.map((block) => {
+            const selected = block.key === selectedBlock?.key;
+            return (
+              <button
+                key={block.key}
+                type="button"
+                onClick={() => setSelectedBlockKey(block.key)}
+                className={`rounded-2xl px-3 py-2 text-sm font-black transition ${
+                  selected ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"
+                }`}
+              >
+                {block.name}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-4 grid grid-cols-[auto_1fr] items-center gap-3">
+          <div className="flex items-center rounded-2xl bg-white p-1 ring-1 ring-slate-200">
+            <button
+              type="button"
+              onClick={() => setLogAmount((value) => Math.max(1, Number(value || 1) - 1))}
+              className="grid h-11 w-11 place-items-center rounded-xl bg-slate-100 text-lg font-black text-slate-900"
+            >
+              -
+            </button>
+            <input
+              aria-label="Sales to log"
+              type="number"
+              min="1"
+              value={logAmount}
+              onChange={(event) => setLogAmount(Math.max(1, Number(event.target.value || 1)))}
+              className="h-11 w-14 border-0 bg-transparent px-2 text-center text-lg font-black text-slate-950 outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => setLogAmount((value) => Number(value || 1) + 1)}
+              className="grid h-11 w-11 place-items-center rounded-xl bg-slate-100 text-lg font-black text-slate-900"
+            >
+              +
+            </button>
+          </div>
+          <button type="button" onClick={logSale} className="min-h-12 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-card">
+            Log sale
+          </button>
+        </div>
+        <div className="mt-2 text-xs font-bold text-slate-500">
+          Adds to {selectedBlock?.name || "selected block"} and today&apos;s total. {number(selectedBlockActual)} / {number(selectedBlockTarget, 1)} logged.
+        </div>
+        <div className="mt-3 grid grid-cols-4 gap-2">
+          <button
+            type="button"
+            onClick={() => setEditOpen((value) => !value)}
+            className="rounded-2xl bg-white px-3 py-3 text-xs font-black text-slate-700 ring-1 ring-slate-200"
+          >
+            {editOpen ? "Close" : "Edit"}
+          </button>
+          <button
+            type="button"
+            onClick={undoLastQuickAdd}
+            disabled={!lastQuickAdd}
+            className="rounded-2xl bg-white px-3 py-3 text-xs font-black text-slate-700 ring-1 ring-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Undo
+          </button>
+          <button type="button" onClick={clearCurrentBlock} className="rounded-2xl bg-white px-3 py-3 text-xs font-black text-slate-700 ring-1 ring-slate-200">
+            Clear block
+          </button>
+          <button type="button" onClick={clearToday} className="rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700">
+            Clear day
+          </button>
+        </div>
       </div>
 
       {editOpen && (
@@ -1204,68 +1280,6 @@ function TodaySalesCard({ command, onSaveDay }) {
           </button>
         </div>
       )}
-
-      <div className="mt-4 rounded-3xl bg-slate-950 p-4 text-white">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs font-black uppercase tracking-wide text-white/55">Current block</div>
-            <div className="text-xl font-black">{activeBlock?.name || "Day review"}</div>
-          </div>
-          <div className="text-right text-sm font-bold text-white/75">
-            {activeBlock?.minutesLeft ? `${Math.floor(activeBlock.minutesLeft / 60)}h ${activeBlock.minutesLeft % 60}m left` : "Final results"}
-          </div>
-        </div>
-        <Progress value={(activeBlockActual / Math.max(1, activeBlockTarget)) * 100} tone="white" />
-        <div className="mt-3 grid grid-cols-2 gap-3 text-sm font-bold text-white/75">
-          <div>Logged: <span className="text-white">{number(activeBlockActual)}</span></div>
-          <div className="text-right">Needed: <span className="text-white">{number(activeBlockRemaining || remaining, 1)}</span></div>
-        </div>
-        <div className="mt-4 grid grid-cols-[auto_1fr] items-center gap-3">
-          <div className="flex items-center rounded-2xl bg-white/10 p-1">
-            <button
-              type="button"
-              onClick={() => setLogAmount((value) => Math.max(1, Number(value || 1) - 1))}
-              className="grid h-11 w-11 place-items-center rounded-xl bg-white/10 text-lg font-black"
-            >
-              -
-            </button>
-            <input
-              aria-label="Sales to log"
-              type="number"
-              min="1"
-              value={logAmount}
-              onChange={(event) => setLogAmount(Math.max(1, Number(event.target.value || 1)))}
-              className="h-11 w-14 border-0 bg-transparent px-2 text-center text-lg font-black text-white outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => setLogAmount((value) => Number(value || 1) + 1)}
-              className="grid h-11 w-11 place-items-center rounded-xl bg-white/10 text-lg font-black"
-            >
-              +
-            </button>
-          </div>
-          <button type="button" onClick={logSale} className="min-h-12 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950">
-            Log to {activeBlock?.name || "today"}
-          </button>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          <button
-            type="button"
-            onClick={undoLastQuickAdd}
-            disabled={!lastQuickAdd}
-            className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Undo
-          </button>
-          <button type="button" onClick={clearCurrentBlock} className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-black text-white">
-            Clear block
-          </button>
-          <button type="button" onClick={clearToday} className="rounded-2xl bg-red-500/80 px-3 py-3 text-xs font-black text-white">
-            Clear today
-          </button>
-        </div>
-      </div>
 
       <button
         type="button"
