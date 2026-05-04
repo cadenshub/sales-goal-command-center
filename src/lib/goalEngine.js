@@ -23,6 +23,14 @@ export const dayTypes = {
   custom: { label: "Custom", weight: 1, color: "violet" },
 };
 
+export function getEffectiveWeeklyGoal(week, planOrDefaultGoal) {
+  const defaultGoal =
+    typeof planOrDefaultGoal === "object"
+      ? Number(planOrDefaultGoal?.default_weekly_goal || 0)
+      : Number(planOrDefaultGoal || 0);
+  return week?.custom_goal_enabled ? Number(week.weekly_goal || 0) : defaultGoal;
+}
+
 export const defaultTimeBlocks = [
   {
     key: "morning",
@@ -365,14 +373,16 @@ function getCurrentStreak(today, seasonStart, normalWorkdays, dayOverrides, entr
 function getWeekRange(workspace, start, end, defaultGoal) {
   const match = (workspace.weeks || []).find((week) => start <= week.week_end && end >= week.week_start);
   return (
-    match || {
-      week_start: start,
-      week_end: end,
-      weekly_goal: defaultGoal,
-      custom_goal_enabled: false,
-      custom_range_enabled: false,
-      range_label: "Current sales week",
-    }
+    match
+      ? { ...match, weekly_goal: getEffectiveWeeklyGoal(match, defaultGoal) }
+      : {
+          week_start: start,
+          week_end: end,
+          weekly_goal: defaultGoal,
+          custom_goal_enabled: false,
+          custom_range_enabled: false,
+          range_label: "Current sales week",
+        }
   );
 }
 
@@ -397,7 +407,11 @@ function buildWeeks(
   }
 
   const unique = new Map();
-  [...ranges, ...(workspace.weeks || [])].forEach((week) => {
+  const normalizedSavedWeeks = (workspace.weeks || []).map((week) => ({
+    ...week,
+    weekly_goal: getEffectiveWeeklyGoal(week, plan),
+  }));
+  [...ranges, ...normalizedSavedWeeks].forEach((week) => {
     unique.set(`${week.week_start}-${week.week_end}`, week);
   });
 
@@ -405,15 +419,17 @@ function buildWeeks(
     .sort((a, b) => a.week_start.localeCompare(b.week_start))
     .map((week) => {
       const actual = sumSales(week.week_start, week.week_end, entriesByDate, timeBlocksByDate);
-      const remaining = Math.max(0, Number(week.weekly_goal || 0) - actual);
+      const weeklyGoal = getEffectiveWeeklyGoal(week, plan);
+      const remaining = Math.max(0, weeklyGoal - actual);
       const today = todayISO();
       const remainingStart = maxISO(today, week.week_start);
       const capacity = remainingStart <= week.week_end ? sumCapacity(remainingStart, week.week_end, normalWorkdays, dayOverrides) : 0;
       const requiredPerDay = capacity > 0 ? remaining / capacity : 0;
-      const progress = Number(week.weekly_goal || 0) > 0 ? (actual / Number(week.weekly_goal || 0)) * 100 : 100;
+      const progress = weeklyGoal > 0 ? (actual / weeklyGoal) * 100 : 100;
       const confirmation = weeklyConfirmationsByRange[`${week.week_start}:${week.week_end}`] || null;
       return {
         ...week,
+        weekly_goal: weeklyGoal,
         actual,
         remaining,
         remainingCapacity: capacity,

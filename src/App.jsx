@@ -56,7 +56,7 @@ import {
   upsertWeeklyConfirmation,
   upsertWeek,
 } from "./lib/repository";
-import { buildCommandCenter, dayTypes, defaultTimeBlocks, normalizeTimeBlocks } from "./lib/goalEngine";
+import { buildCommandCenter, dayTypes, defaultTimeBlocks, getEffectiveWeeklyGoal, normalizeTimeBlocks } from "./lib/goalEngine";
 import {
   addDays,
   datesBetween,
@@ -371,7 +371,7 @@ export default function App() {
           {page === "incentives" && (
             <IncentivesPage command={command} workspace={workspace} saveIncentive={saveIncentive} removeIncentive={removeIncentive} />
           )}
-          {page === "settings" && <SettingsPage user={session.user} workspace={workspace} saveSettings={saveSettings} />}
+          {page === "settings" && <SettingsPage user={session.user} workspace={workspace} saveSettings={saveSettings} savePlan={savePlan} />}
         </div>
       </main>
 
@@ -1611,7 +1611,7 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
     const start = week[0];
     const end = week[6];
     const match = command.weeks.find((item) => start <= item.week_end && end >= item.week_start);
-    return Number(match?.weekly_goal || command.plan.default_weekly_goal || 0);
+    return getEffectiveWeeklyGoal(match, command.plan);
   }
 
   return (
@@ -1990,7 +1990,10 @@ function GoalsPage({ workspace, command, savePlan, saveSettings, saveWeek, remov
           <Field label="Tracking start" type="date" value={draft.tracking_start_date} onChange={(v) => setDraft({ ...draft, tracking_start_date: v })} />
           <Field label="Season goal" type="number" value={draft.total_goal} onChange={(v) => setDraft({ ...draft, total_goal: v })} />
           <Field label="Starting sales" type="number" value={draft.starting_sales} onChange={(v) => setDraft({ ...draft, starting_sales: v })} />
-          <Field label="Default weekly goal" type="number" value={draft.default_weekly_goal} onChange={(v) => setDraft({ ...draft, default_weekly_goal: v })} />
+          <div className="grid gap-2">
+            <Field label="Default weekly goal" type="number" value={draft.default_weekly_goal} onChange={(v) => setDraft({ ...draft, default_weekly_goal: v })} />
+            <p className="text-xs font-bold text-slate-500">Used for weeks without a custom goal.</p>
+          </div>
           <Field label="Max realistic sales/day" type="number" value={draft.max_sales_per_day} onChange={(v) => setDraft({ ...draft, max_sales_per_day: v })} />
           <Field
             label="Catch-up strategy"
@@ -2044,7 +2047,8 @@ function GoalsPage({ workspace, command, savePlan, saveSettings, saveWeek, remov
           empty="No custom weekly goals yet."
           render={(week) => (
             <WeekMiniEditor
-              week={week}
+              week={{ ...week, weekly_goal: getEffectiveWeeklyGoal(week, command.plan) }}
+              defaultWeeklyGoal={command.plan.default_weekly_goal}
               onChange={saveWeek}
               onDelete={() => removeWeek(week.id)}
             />
@@ -2227,9 +2231,11 @@ function RewardModal({ incentive, onSave, onClose }) {
   );
 }
 
-function SettingsPage({ user, workspace, saveSettings }) {
+function SettingsPage({ user, workspace, saveSettings, savePlan }) {
   const [blocks, setBlocks] = useState(normalizeTimeBlocks(workspace.settings.time_blocks_config));
+  const [defaultWeeklyGoal, setDefaultWeeklyGoal] = useState(workspace.plan.default_weekly_goal || 0);
   useEffect(() => setBlocks(normalizeTimeBlocks(workspace.settings.time_blocks_config)), [workspace.settings.time_blocks_config]);
+  useEffect(() => setDefaultWeeklyGoal(workspace.plan.default_weekly_goal || 0), [workspace.plan.default_weekly_goal]);
 
   function updateBlock(key, changes) {
     setBlocks((current) => current.map((block) => (block.key === key ? { ...block, ...changes } : block)));
@@ -2245,6 +2251,17 @@ function SettingsPage({ user, workspace, saveSettings }) {
       <Card title="Work schedule" icon={Calendar}>
         <WeekdayPicker value={workspace.settings.normal_workdays} onChange={(normal_workdays) => saveSettings({ normal_workdays })} />
         <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="grid gap-2">
+            <Field label="Default weekly goal" type="number" value={defaultWeeklyGoal} onChange={setDefaultWeeklyGoal} />
+            <p className="text-xs font-bold text-slate-500">Used for weeks without a custom goal.</p>
+            <button
+              type="button"
+              onClick={() => savePlan({ default_weekly_goal: Number(defaultWeeklyGoal || 0) })}
+              className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white"
+            >
+              Save default weekly goal
+            </button>
+          </div>
           <Field
             label="Week starts on"
             type="select"
@@ -2390,6 +2407,7 @@ function WeekCard({ week, command, saveWeek, removeWeek, saveDay }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(week);
   const weekDays = command.dayPlans.filter((day) => day.date >= week.week_start && day.date <= week.week_end);
+  useEffect(() => setDraft(week), [week]);
   return (
     <div className="rounded-[2rem] bg-white p-5 shadow-card">
       <div className="flex items-start justify-between gap-3">
@@ -2412,7 +2430,7 @@ function WeekCard({ week, command, saveWeek, removeWeek, saveDay }) {
       </div>
       {editing && (
         <div className="mt-4 rounded-3xl bg-slate-50 p-4">
-          <WeekMiniEditor week={draft} onChange={setDraft} />
+          <WeekMiniEditor week={draft} defaultWeeklyGoal={command.plan.default_weekly_goal} onChange={setDraft} />
           <button type="button" onClick={() => saveWeek(draft)} className="mt-3 rounded-2xl bg-slate-950 px-4 py-2 font-black text-white">Save week</button>
         </div>
       )}
@@ -2610,13 +2628,26 @@ function EditableList({ items, empty, render }) {
   );
 }
 
-function WeekMiniEditor({ week, onChange, onDelete }) {
+function WeekMiniEditor({ week, defaultWeeklyGoal, onChange, onDelete }) {
+  const usingCustomGoal = Boolean(week.custom_goal_enabled);
   return (
     <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:grid-cols-5">
       <Field label="Label" value={week.range_label || ""} onChange={(v) => onChange({ ...week, range_label: v })} />
       <Field label="Start" type="date" value={week.week_start} onChange={(v) => onChange({ ...week, week_start: v })} />
       <Field label="End" type="date" value={week.week_end} onChange={(v) => onChange({ ...week, week_end: v })} />
-      <Field label="Goal" type="number" value={week.weekly_goal} onChange={(v) => onChange({ ...week, weekly_goal: v, custom_goal_enabled: true })} />
+      <div className="grid gap-2">
+        <Field label="Goal" type="number" value={week.weekly_goal} onChange={(v) => onChange({ ...week, weekly_goal: v, custom_goal_enabled: true })} />
+        <span className="text-xs font-bold text-slate-500">{usingCustomGoal ? "Custom week goal" : "Using default goal"}</span>
+        {usingCustomGoal && (
+          <button
+            type="button"
+            onClick={() => onChange({ ...week, weekly_goal: Number(defaultWeeklyGoal || 0), custom_goal_enabled: false })}
+            className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
+          >
+            Reset to default
+          </button>
+        )}
+      </div>
       {onDelete && <button type="button" onClick={onDelete} className="self-end rounded-2xl bg-red-50 px-4 py-3 font-black text-red-700">Delete</button>}
     </div>
   );
