@@ -1685,7 +1685,7 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
                   {achievement && <span className={`rounded-full px-2 py-0.5 text-[11px] ${achievement.className}`}>{achievement.label}</span>}
                 </div>
                 {weekGoal > 0 && weekTotal >= weekGoal && (
-                  <div className="border-t border-yellow-500/30 bg-yellow-700 px-3 py-1 text-[11px] font-black text-yellow-50 shadow-inner dark:border-yellow-300/20 dark:bg-yellow-600 dark:text-yellow-950">
+                  <div className="border-t border-yellow-500/50 bg-yellow-300 px-3 py-1 text-[11px] font-black text-yellow-950 shadow-inner dark:border-yellow-300/40 dark:bg-yellow-400 dark:text-yellow-950">
                     🥇 Goals Met
                   </div>
                 )}
@@ -1709,7 +1709,7 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
                         key={date}
                         type="button"
                         onClick={() => pickDay(date)}
-                        className={`min-h-[4.4rem] border-r border-slate-100 p-2 text-left transition last:border-r-0 hover:bg-indigo-50/60 active:scale-[0.98] ${
+                        className={`min-h-[4.4rem] border-r border-slate-200 p-2 text-left transition last:border-r-0 hover:bg-indigo-50/60 active:scale-[0.98] dark:border-slate-700 ${
                           metGoal
                             ? "border-emerald-400 bg-emerald-500 text-white shadow-inner hover:bg-emerald-600 dark:border-emerald-300 dark:bg-emerald-500 dark:hover:bg-emerald-400"
                             : nonCountingCurrentMonth
@@ -1739,7 +1739,7 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
                           <span className="flex items-center gap-1">
                             {claimedIncentives > 0 && (
                               <span
-                                className="inline-grid h-4 w-4 place-items-center rounded-full bg-purple-50 text-[10px] leading-none ring-1 ring-purple-400 dark:bg-purple-950 dark:ring-purple-300"
+                                className="inline-grid h-4 w-4 place-items-center rounded-full bg-purple-600 text-[10px] leading-none shadow-sm ring-1 ring-purple-200 dark:bg-purple-400 dark:ring-purple-200"
                                 aria-label={`${claimedIncentives} claimed incentive${claimedIncentives === 1 ? "" : "s"}`}
                               >
                                 🎁
@@ -1786,10 +1786,10 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
 
 function weeklyAchievement(progress, goal) {
   if (!goal || goal <= 0) return null;
-  if (progress > 1) return { label: "Diamond", className: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-200" };
-  if (progress >= 1) return { label: "🥇", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-400/20 dark:text-yellow-200" };
-  if (progress >= 0.75) return { label: "Silver", className: "bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-slate-100" };
-  if (progress < 0.6) return { label: "Bronze", className: "bg-stone-200 text-stone-700 dark:bg-stone-700 dark:text-stone-100" };
+  if (progress > 1) return { label: "Diamond", className: "bg-cyan-100 text-cyan-700 ring-1 ring-cyan-200 dark:bg-cyan-400/20 dark:text-cyan-100 dark:ring-cyan-300/30" };
+  if (progress >= 1) return { label: "🥇", className: "bg-yellow-200 text-yellow-900 ring-1 ring-yellow-400/60 dark:bg-yellow-300 dark:text-yellow-950 dark:ring-yellow-100/40" };
+  if (progress >= 0.75) return { label: "Silver", className: "bg-slate-200 text-slate-700 ring-1 ring-slate-300 dark:bg-slate-300 dark:text-slate-900 dark:ring-slate-100/40" };
+  if (progress < 0.6) return { label: "Bronze", className: "bg-[#ead2b8] text-[#7a461c] ring-1 ring-[#b87333]/40 dark:bg-[#8a5529] dark:text-[#ffe3c2] dark:ring-[#d69a5b]/40" };
   return null;
 }
 
