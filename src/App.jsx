@@ -60,6 +60,7 @@ import {
   addDays,
   datesBetween,
   formatDate,
+  formatMonth,
   formatRange,
   maxISO,
   monthEnd,
@@ -1514,101 +1515,129 @@ function TodaySalesCard({ command, onSaveDay }) {
 }
 
 function CalendarPage({ command, onSelectDay }) {
-  const [mode, setMode] = useState("month");
   const [anchor, setAnchor] = useState(command.today);
-  const [filter, setFilter] = useState("all");
-  const [customStart, setCustomStart] = useState(command.plan.start_date);
-  const [customEnd, setCustomEnd] = useState(command.plan.end_date);
-  const range = getCalendarRange(mode, anchor, customStart, customEnd, command);
-  const days = command.dayPlans.filter((day) => day.date >= range.start && day.date <= range.end).filter((day) => applyDayFilter(day, filter));
+  const [selectedDate, setSelectedDate] = useState(command.today);
+  const weekStartDay = Number(command.settings.default_week_start_day ?? 1);
+  const monthStartDate = monthStart(parseISO(anchor));
+  const monthEndDate = monthEnd(parseISO(anchor));
+  const gridStart = toISO(weekStart(monthStartDate, weekStartDay));
+  const gridEnd = toISO(weekEnd(monthEndDate, weekStartDay));
+  const monthKey = anchor.slice(0, 7);
+  const daysByDate = Object.fromEntries(command.dayPlans.map((day) => [day.date, day]));
+  const calendarDates = datesBetween(gridStart, gridEnd);
+  const weekRows = [];
+  for (let index = 0; index < calendarDates.length; index += 7) {
+    weekRows.push(calendarDates.slice(index, index + 7));
+  }
+  const weekdayLabels = Array.from({ length: 7 }, (_, index) => {
+    const value = (weekStartDay + index) % 7;
+    return weekdayOptions.find((day) => day.value === value)?.label || "";
+  });
+
+  function displayDay(date) {
+    const existing = daysByDate[date];
+    if (existing) return existing;
+    return {
+      date,
+      actual: 0,
+      dayType: "normal",
+      capacity: 1,
+      notes: "",
+      include: true,
+      isToday: date === command.today,
+      isPast: date < command.today,
+      isFuture: date > command.today,
+    };
+  }
+
+  function pickDay(date) {
+    setSelectedDate(date);
+    onSelectDay(date);
+  }
 
   return (
-    <div className="grid gap-5">
-      <Card title="Calendar scheduler" icon={Calendar}>
-        <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
-          <div className="flex flex-wrap gap-2">
-            {["week", "month", "custom", "season"].map((item) => (
-              <button key={item} type="button" onClick={() => setMode(item)} className={`rounded-2xl px-4 py-2 text-sm font-black capitalize ${mode === item ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"}`}>
-                {item}
-              </button>
-            ))}
-            <button type="button" onClick={() => setAnchor(command.today)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-black">Today</button>
-            <button type="button" onClick={() => setAnchor(toISO(addDays(parseISO(anchor), mode === "week" ? -7 : -30)))} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-black">Previous</button>
-            <button type="button" onClick={() => setAnchor(toISO(addDays(parseISO(anchor), mode === "week" ? 7 : 30)))} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-black">Next</button>
+    <div className="grid gap-4">
+      <section className="glass-card rounded-3xl p-4">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setAnchor(toISO(addDays(monthStartDate, -1)))}
+            className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-200 active:scale-[0.98]"
+          >
+            Prev
+          </button>
+          <div className="text-center">
+            <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Calendar</div>
+            <h2 className="text-xl font-black text-slate-950">{formatMonth(anchor)}</h2>
           </div>
-          <Field
-            label="Filter"
-            type="select"
-            value={filter}
-            onChange={setFilter}
-            options={[
-              { value: "all", label: "All days" },
-              { value: "active", label: "Active selling days" },
-              { value: "off", label: "Off days" },
-              { value: "missed", label: "Missed days" },
-              { value: "priority", label: "High-priority days" },
-            ]}
-          />
+          <button
+            type="button"
+            onClick={() => setAnchor(toISO(addDays(monthEndDate, 1)))}
+            className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-200 active:scale-[0.98]"
+          >
+            Next
+          </button>
         </div>
-        {mode === "custom" && (
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <Field label="Custom start" type="date" value={customStart} onChange={setCustomStart} />
-            <Field label="Custom end" type="date" value={customEnd} onChange={setCustomEnd} />
-          </div>
-        )}
-      </Card>
-      <div className={`grid gap-3 ${mode === "month" || mode === "week" ? "md:grid-cols-7" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
-        {(mode === "month" || mode === "week") &&
-          weekdayOptions.map((day) => (
-            <div key={day.value} className="hidden rounded-2xl bg-white/70 px-3 py-2 text-center text-xs font-black uppercase tracking-wide text-slate-400 md:block">
-              {day.label}
+        <button
+          type="button"
+          onClick={() => setAnchor(command.today)}
+          className="mt-3 w-full rounded-2xl bg-indigo-50 px-4 py-2 text-sm font-black text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.99]"
+        >
+          Jump to today
+        </button>
+      </section>
+
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-card">
+        <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50">
+          {weekdayLabels.map((label) => (
+            <div key={label} className="py-2 text-center text-[11px] font-black uppercase tracking-wide text-slate-400">
+              {label}
             </div>
           ))}
-        {days.map((day) => (
-          <button
-            key={day.date}
-            type="button"
-            onClick={() => onSelectDay(day.date)}
-            className={`min-h-36 rounded-3xl border p-4 text-left shadow-card transition hover:-translate-y-1 hover:shadow-glow ${
-              day.dayType === "off"
-                ? "border-slate-200 bg-slate-100"
-                : day.isToday
-                  ? "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-200"
-                  : day.isPast
-                    ? "border-slate-200 bg-white"
-                    : "border-slate-200 bg-white/80"
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-black text-slate-500">{formatDate(day.date, { weekday: "short", year: undefined })}</div>
-                <div className="mt-1 text-2xl font-black">{parseISO(day.date).getDate()}</div>
+        </div>
+        <div className="grid gap-0">
+          {weekRows.map((week) => {
+            const weekTotal = week.reduce((sum, date) => sum + Number(displayDay(date).actual || 0), 0);
+            return (
+              <div key={week[0]} className="border-b border-slate-100 last:border-0">
+                <div className="grid grid-cols-7">
+                  {week.map((date) => {
+                    const day = displayDay(date);
+                    const inMonth = date.slice(0, 7) === monthKey;
+                    const selected = date === selectedDate;
+                    return (
+                      <button
+                        key={date}
+                        type="button"
+                        onClick={() => pickDay(date)}
+                        className={`min-h-[4.4rem] border-r border-slate-100 p-2 text-left transition last:border-r-0 hover:bg-indigo-50/60 active:scale-[0.98] ${
+                          !inMonth ? "bg-slate-50/70 text-slate-300" : day.dayType === "off" ? "bg-slate-100/80" : "bg-white"
+                        } ${day.isToday ? "ring-2 ring-inset ring-indigo-400" : ""} ${selected ? "bg-indigo-50" : ""}`}
+                        aria-label={`Edit ${formatDate(date)}`}
+                      >
+                        <div className="flex items-start justify-between gap-1">
+                          <span className={`text-sm font-black ${day.isToday ? "text-indigo-700" : inMonth ? "text-slate-800" : "text-slate-400"}`}>
+                            {parseISO(date).getDate()}
+                          </span>
+                          {day.dayType === "off" && <span className="h-1.5 w-1.5 rounded-full bg-slate-400" aria-label="Off day" />}
+                        </div>
+                        {Number(day.actual || 0) > 0 && (
+                          <div className="mt-2 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-black text-emerald-700">
+                            +{number(day.actual)}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="bg-slate-50 px-3 py-1.5 text-right text-xs font-black text-slate-500">
+                  Week total: <span className="text-emerald-700">+{number(weekTotal)}</span>
+                </div>
               </div>
-              <Badge tone={statusTone(day.status)}>{day.status}</Badge>
-            </div>
-            <div className="mt-4 rounded-2xl bg-white/70 px-3 py-3">
-              <div className="text-xl font-black">{number(day.actual)} / {number(day.plannedTarget, 1)}</div>
-              <div className="text-xs font-black uppercase tracking-wide text-slate-400">sales</div>
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-600">
-              <span className="truncate">{dayTypes[day.dayType]?.label || "Custom"}</span>
-              <span>{day.capacity > 0 ? `${number(day.capacity, 1)}x` : "Off"}</span>
-            </div>
-            {day.isToday && (
-              <div className="mt-3 flex gap-1">
-                {day.timeBlocks.blocks.filter((block) => block.active && !block.is_break).map((block) => (
-                  <span
-                    key={block.key}
-                    className={`h-2 flex-1 rounded-full ${block.actual >= block.target ? "bg-emerald-400" : block.isCurrent ? "bg-indigo-500" : "bg-slate-200"}`}
-                    title={`${block.name}: ${number(block.actual)} / ${number(block.target, 1)}`}
-                  />
-                ))}
-              </div>
-            )}
-            {day.notes && <p className="mt-3 line-clamp-2 text-sm font-semibold text-slate-500">{day.notes}</p>}
-          </button>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
@@ -2043,9 +2072,9 @@ function SettingsPage({ user, workspace, saveSettings }) {
 function DayEditor({ day, command, onClose, onSave }) {
   const override = command.dayOverrides[day.date] || {};
   const entry = command.entriesByDate[day.date] || {};
-  const [blockDrafts, setBlockDrafts] = useState(() => blockDraftsFromDay(day));
+  const [blockDrafts] = useState(() => blockDraftsFromDay(day));
   const [draft, setDraft] = useState({
-    sales_count: entry.sales_count || day.actual || 0,
+    sales_count: day.actual ?? entry.sales_count ?? 0,
     sales_notes: entry.notes || "",
     day_type: override.day_type || day.dayType || "normal",
     capacity_weight: override.capacity_weight ?? day.capacity ?? 1,
@@ -2063,70 +2092,46 @@ function DayEditor({ day, command, onClose, onSave }) {
       include_in_calculations: value !== "off",
     }));
   }
-  function updateBlock(key, changes) {
-    setBlockDrafts((current) => current.map((block) => (block.key === key ? { ...block, ...changes } : block)));
+
+  function saveSimpleDay() {
+    const desiredTotal = Math.max(0, Number(draft.sales_count || 0));
+    const adjustedBlocks = reconcileBlocksToTotal(blockDrafts, desiredTotal);
+    onSave({ ...draft, sales_count: desiredTotal, time_blocks: adjustedBlocks });
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 px-4">
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-auto rounded-[2rem] bg-white p-5 shadow-glow">
+    <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/45 px-3 py-3 sm:place-items-center">
+      <div className="max-h-[92vh] w-full max-w-md overflow-auto rounded-[2rem] bg-white p-5 shadow-glow">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Day editor</div>
+            <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Edit day</div>
             <h2 className="text-2xl font-black">{formatDate(day.date, { weekday: "long" })}</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-2xl bg-slate-100 px-4 py-2 font-black">Close</button>
+          <button type="button" onClick={onClose} className="rounded-2xl bg-slate-100 px-4 py-2 font-black transition active:scale-[0.98]">Cancel</button>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Sales count" type="number" value={draft.sales_count} onChange={(v) => setDraft({ ...draft, sales_count: v })} />
-          <Field
-            label="Workday type"
-            type="select"
-            value={draft.day_type}
-            onChange={setDayType}
-            options={Object.entries(dayTypes).map(([value, meta]) => ({ value, label: meta.label }))}
-          />
-          <Field label="Capacity weight" type="number" value={draft.capacity_weight} onChange={(v) => setDraft({ ...draft, capacity_weight: v })} />
-          <Field label="Custom target" type="number" value={draft.custom_target} onChange={(v) => setDraft({ ...draft, custom_target: v })} />
-        </div>
-        <Toggle label="Include this day in goal calculations" checked={draft.include_in_calculations} onChange={(v) => setDraft({ ...draft, include_in_calculations: v })} />
-        <div className="mt-4 grid gap-4">
-          <Field label="Sales notes" type="textarea" value={draft.sales_notes} onChange={(v) => setDraft({ ...draft, sales_notes: v })} />
-          <Field label="Schedule notes" type="textarea" value={draft.day_notes} onChange={(v) => setDraft({ ...draft, day_notes: v })} />
-        </div>
-        <div className="mt-5 rounded-[1.5rem] bg-slate-50 p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-black uppercase tracking-wide text-slate-500">Time blocks</div>
-              <div className="text-sm font-bold text-slate-600">
-                Total: {number(blockDrafts.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0))} / {number(day.plannedTarget, 1)}
-              </div>
-            </div>
-            <Badge tone={statusTone(day.timeBlocks?.message || day.status)}>{day.status}</Badge>
+        <div className="rounded-3xl bg-slate-50 p-4">
+          <Field label="Total sales" type="number" value={draft.sales_count} onChange={(v) => setDraft({ ...draft, sales_count: v })} />
+          <div className="mt-4">
+            <Field
+              label="Day status"
+              type="select"
+              value={draft.day_type}
+              onChange={setDayType}
+              options={Object.entries(dayTypes).map(([value, meta]) => ({ value, label: meta.label }))}
+            />
           </div>
-          <div className="grid gap-3">
-            {blockDrafts.map((block) => (
-              <div key={block.key} className="grid gap-3 rounded-2xl bg-white p-3 md:grid-cols-[1.1fr_0.7fr_0.7fr_1.4fr]">
-                <div className="min-w-0">
-                  <div className="truncate font-black">{block.name}</div>
-                  <div className="text-xs font-bold text-slate-500">{block.start_time} - {block.end_time}</div>
-                </div>
-                <Field label="Target" type="number" value={block.target_sales ?? block.target ?? 0} onChange={(v) => updateBlock(block.key, { target_sales: v, target: Number(v) })} />
-                <Field label="Actual" type="number" value={block.actual_sales ?? block.actual ?? 0} onChange={(v) => updateBlock(block.key, { actual_sales: v })} />
-                <Field label="Notes" value={block.notes || ""} onChange={(v) => updateBlock(block.key, { notes: v })} />
-              </div>
-            ))}
+          <div className="mt-4">
+            <Field label="Note" type="textarea" value={draft.sales_notes || draft.day_notes} onChange={(v) => setDraft({ ...draft, sales_notes: v, day_notes: v })} />
           </div>
+          <Toggle label="Counts toward goal" checked={draft.include_in_calculations} onChange={(v) => setDraft({ ...draft, include_in_calculations: v })} />
         </div>
-        <div className="mt-5 rounded-3xl bg-indigo-50 p-4 text-sm font-bold text-indigo-800">
-          If you hit {number(Number(draft.sales_count || 0) + Math.max(0, command.salesNeededToday), 1)} today, your remaining daily pace moves to about {number(command.requiredPerWorkday, 1)}/day.
-        </div>
+        {/* Future vacation/time-off ranges should use this same day status path so remaining selling days and the game plan recalculate cleanly. */}
         <button
           type="button"
-          onClick={() => onSave({ ...draft, time_blocks: blockDrafts })}
-          className="mt-5 w-full rounded-2xl bg-slate-950 px-5 py-4 font-black text-white"
+          onClick={saveSimpleDay}
+          className="mt-5 w-full rounded-2xl bg-slate-950 px-5 py-4 font-black text-white transition active:scale-[0.99]"
         >
-          Save day
+          Save
         </button>
       </div>
     </div>
@@ -2421,6 +2426,33 @@ function blockDraftsFromDay(day) {
   }));
 }
 
+function reconcileBlocksToTotal(blocks, desiredTotal) {
+  if (!blocks.length) return [];
+  const sellingKeys = blocks.filter((block) => block.active && !block.is_break).map((block) => block.key);
+  if (!sellingKeys.length) return blocks;
+  let remainingReduction = Math.max(0, blocks.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0) - desiredTotal);
+  let remainingAddition = Math.max(0, desiredTotal - blocks.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0));
+  const primaryKey = sellingKeys[0];
+  return blocks.map((block) => {
+    if (!sellingKeys.includes(block.key)) return block;
+    let nextActual = Number(block.actual_sales || 0);
+    if (remainingReduction > 0) {
+      const reduction = Math.min(nextActual, remainingReduction);
+      nextActual -= reduction;
+      remainingReduction -= reduction;
+    }
+    if (block.key === primaryKey && remainingAddition > 0) {
+      nextActual += remainingAddition;
+      remainingAddition = 0;
+    }
+    return {
+      ...block,
+      actual_sales: nextActual,
+      type_breakdown: resizeSaleTypeBreakdown(block.type_breakdown, nextActual),
+    };
+  });
+}
+
 function SaleTypeMiniStat({ icon: Icon, label, value, tone = "slate" }) {
   const toneClass =
     tone === "emerald"
@@ -2515,6 +2547,17 @@ function normalizeSaleTypeBreakdown(value, fallbackActual = 0) {
   return { doors: Math.max(0, Number(fallbackActual || 0)), phone: 0 };
 }
 
+function resizeSaleTypeBreakdown(value, nextActual) {
+  const breakdown = normalizeSaleTypeBreakdown(value, 0);
+  const target = Math.max(0, Number(nextActual || 0));
+  const current = breakdown.doors + breakdown.phone;
+  if (target === 0) return { doors: 0, phone: 0 };
+  if (current === 0) return { doors: target, phone: 0 };
+  if (target >= current) return { doors: breakdown.doors + (target - current), phone: breakdown.phone };
+  const doors = Math.min(breakdown.doors, target);
+  return { doors, phone: Math.max(0, target - doors) };
+}
+
 function safeJsonParse(value) {
   try {
     return JSON.parse(value);
@@ -2530,21 +2573,6 @@ function blockIcon(block) {
   if (name.includes("evening")) return Moon;
   if (name.includes("push")) return Flame;
   return Clock;
-}
-
-function getCalendarRange(mode, anchor, customStart, customEnd, command) {
-  if (mode === "week") return { start: toISO(weekStart(parseISO(anchor), command.settings.default_week_start_day)), end: toISO(weekEnd(parseISO(anchor), command.settings.default_week_start_day)) };
-  if (mode === "month") return { start: toISO(monthStart(parseISO(anchor))), end: toISO(monthEnd(parseISO(anchor))) };
-  if (mode === "season") return { start: command.plan.start_date, end: command.plan.end_date };
-  return { start: customStart, end: customEnd };
-}
-
-function applyDayFilter(day, filter) {
-  if (filter === "active") return day.capacity > 0;
-  if (filter === "off") return day.dayType === "off";
-  if (filter === "missed") return day.dayType === "missed" || day.status === "Missed";
-  if (filter === "priority") return day.dayType === "big_push" || day.capacity >= 1.5;
-  return true;
 }
 
 function buildDatePreview(command, draft) {
