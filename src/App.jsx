@@ -1152,9 +1152,12 @@ function TodaySalesCard({ command, onSaveDay }) {
   const remaining = Math.max(0, totalTarget - totalActual);
   const activeBlock = currentBlock && !currentBlock.is_break ? currentBlock : visibleBlocks.find((block) => !block.isPast) || visibleBlocks[0];
   const selectedBlock = visibleBlocks.find((block) => block.key === selectedBlockKey) || activeBlock || visibleBlocks[0];
-  const selectedBlockActual = Number(selectedBlock?.actual_sales || 0);
-  const selectedBlockTarget = Number(selectedBlock?.target || 0);
   const dailyProgress = (totalActual / Math.max(1, totalTarget)) * 100;
+  const morningBlock = visibleBlocks.find((block) => block.name.toLowerCase().includes("morning"));
+  const afternoonBlock = visibleBlocks.find((block) => block.name.toLowerCase().includes("afternoon"));
+  const summaryBlocks = [morningBlock || visibleBlocks[0], afternoonBlock || visibleBlocks.find((block) => block.key !== visibleBlocks[0]?.key)]
+    .filter(Boolean)
+    .filter((block, index, blocks) => blocks.findIndex((item) => item.key === block.key) === index);
   const dayHelpText =
     today.dayType === "off"
       ? "Today is marked off. Bonus sales still count."
@@ -1253,17 +1256,30 @@ function TodaySalesCard({ command, onSaveDay }) {
 
       <div className="mt-3 rounded-3xl bg-slate-50 p-3">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-black uppercase tracking-wide text-slate-500">Add sales</div>
-            <div className="text-xs font-bold text-slate-500">Choose a block and amount.</div>
-          </div>
+          <div className="text-sm font-black uppercase tracking-wide text-slate-500">Add sales</div>
           <button
             type="button"
             onClick={() => setAddSalesOpen((value) => !value)}
-            className="rounded-2xl bg-white px-3 py-2 text-sm font-black text-slate-700 ring-1 ring-slate-200"
+            className="rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-card transition hover:bg-indigo-700"
           >
-            {addSalesOpen ? "Close" : "Add Sales"}
+            Add Sales
           </button>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {summaryBlocks.map((block) => {
+            const blockProgress = (Number(block.actual_sales || 0) / Math.max(1, Number(block.target || 0))) * 100;
+            return (
+              <div key={block.key} className="min-w-0 rounded-2xl bg-white p-2.5 ring-1 ring-slate-200">
+                <div className="truncate text-sm font-black text-slate-900">{block.name}</div>
+                <div className="mt-1 text-xs font-bold text-slate-500">
+                  {number(block.actual_sales || 0)} / {number(block.target || 0, 1)}
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${Math.min(100, blockProgress)}%` }} />
+                </div>
+              </div>
+            );
+          })}
         </div>
         {addSalesOpen && (
           <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
@@ -1313,21 +1329,6 @@ function TodaySalesCard({ command, onSaveDay }) {
             </div>
           </div>
         )}
-        <div className="mt-2 text-xs font-bold text-slate-500">
-          {addSalesOpen ? "Choose an amount, then log it." : "Tap Add Sales to choose a block and quantity."} {selectedBlock?.name || "Selected block"}: {number(selectedBlockActual)} / {number(selectedBlockTarget, 1)} logged.
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setEditOpen((value) => !value)}
-            className="rounded-2xl bg-white px-3 py-3 text-xs font-black text-slate-700 ring-1 ring-slate-200"
-          >
-            {editOpen ? "Close" : "Edit"}
-          </button>
-          <button type="button" onClick={clearToday} className="rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700">
-            Clear day
-          </button>
-        </div>
       </div>
 
       {editOpen && (
@@ -1381,6 +1382,18 @@ function TodaySalesCard({ command, onSaveDay }) {
         ))}
       </div>
       )}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => setEditOpen((value) => !value)}
+          className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
+        >
+          {editOpen ? "Close edit" : "Edit day"}
+        </button>
+        <button type="button" onClick={clearToday} className="rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700">
+          Clear day
+        </button>
+      </div>
     </section>
   );
 }
