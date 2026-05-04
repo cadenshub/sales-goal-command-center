@@ -1055,7 +1055,6 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [notes, setNotes] = useState(today?.notes || "");
   const [manualSales, setManualSales] = useState(today?.actual || 0);
   const [blockDrafts, setBlockDrafts] = useState(() => blockDraftsFromDay(today));
-  const [lastQuickAdd, setLastQuickAdd] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
   const [showAllBlocks, setShowAllBlocks] = useState(false);
   const [addSalesOpen, setAddSalesOpen] = useState(false);
@@ -1081,7 +1080,6 @@ function TodaySalesCard({ command, onSaveDay }) {
     setAddSalesOpen(false);
     setLogAmount(1);
     setSelectedBlockKey("");
-    setLastQuickAdd(null);
     lastTodaySyncKeyRef.current = "";
   }, [today?.date]);
 
@@ -1121,23 +1119,8 @@ function TodaySalesCard({ command, onSaveDay }) {
     );
     const updatedTotal = Number(manualSales || 0) + amount;
     setManualSales(updatedTotal);
-    setLastQuickAdd({ amount, key });
     setBlockDrafts(updatedBlocks);
     await save(updatedBlocks, updatedTotal, key);
-  }
-
-  async function undoLastQuickAdd() {
-    if (!lastQuickAdd) return;
-    const updatedTotal = Math.max(0, Number(manualSales || 0) - lastQuickAdd.amount);
-    const updatedBlocks = blockDrafts.map((block) =>
-        block.key === lastQuickAdd.key
-          ? { ...block, actual_sales: Math.max(0, Number(block.actual_sales || 0) - lastQuickAdd.amount) }
-          : block,
-    );
-    setManualSales(updatedTotal);
-    setBlockDrafts(updatedBlocks);
-    setLastQuickAdd(null);
-    await save(updatedBlocks, updatedTotal, lastQuickAdd.key);
   }
 
   async function clearToday() {
@@ -1145,19 +1128,18 @@ function TodaySalesCard({ command, onSaveDay }) {
     const clearedBlocks = blockDrafts.map((block) => ({ ...block, actual_sales: 0 }));
     setManualSales(0);
     setBlockDrafts(clearedBlocks);
-    setLastQuickAdd(null);
     await save(clearedBlocks, 0);
   }
 
-  async function clearCurrentBlock() {
-    if (!selectedBlock) return;
-    if (!window.confirm(`Clear ${selectedBlock.name} sales?`)) return;
-    const currentValue = Number(selectedBlock.actual_sales || 0);
-    const clearedBlocks = blockDrafts.map((block) => (block.key === selectedBlock.key ? { ...block, actual_sales: 0 } : block));
-    setManualSales((value) => Math.max(0, Number(value || 0) - currentValue));
+  async function clearBlock(blockToClear) {
+    if (!blockToClear) return;
+    if (!window.confirm(`Clear ${blockToClear.name} sales?`)) return;
+    const currentValue = Number(blockToClear.actual_sales || 0);
+    const nextTotal = Math.max(0, Number(manualSales || 0) - currentValue);
+    const clearedBlocks = blockDrafts.map((block) => (block.key === blockToClear.key ? { ...block, actual_sales: 0 } : block));
+    setManualSales(nextTotal);
     setBlockDrafts(clearedBlocks);
-    setLastQuickAdd(null);
-    await save(clearedBlocks, Math.max(0, Number(manualSales || 0) - currentValue), selectedBlock.key);
+    await save(clearedBlocks, nextTotal, blockToClear.key);
   }
 
   async function save(blocks = blockDrafts, totalOverride = manualSales, activeKey = activeBlock?.key) {
@@ -1189,38 +1171,38 @@ function TodaySalesCard({ command, onSaveDay }) {
   }
 
   return (
-    <section className="glass-card rounded-3xl p-4 md:p-5">
-      <div className="rounded-3xl bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-3 ring-1 ring-slate-200">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
-            <div className="mt-1 text-sm font-black text-slate-700">Daily goal progress</div>
-          </div>
-          <div className="shrink-0 rounded-2xl bg-white px-3 py-2 text-sm font-black text-slate-900 ring-1 ring-slate-200">
-            {number(totalActual)} / {number(totalTarget, 1)}
-          </div>
-        </div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
-          <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, dailyProgress)}%` }} />
-        </div>
-      </div>
-
+    <section className="glass-card rounded-3xl p-3.5 md:p-5">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="mt-4 text-xl font-black tracking-tight">{formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}</h2>
-          <p className="mt-1 text-sm font-bold text-slate-500">{dayHelpText}</p>
+        <div className="min-w-0">
+          <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
+          <h2 className="mt-1 truncate text-xl font-black tracking-tight">{formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}</h2>
         </div>
         <Badge tone={statusTone(today.status)}>{today.status}</Badge>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <CompactMetric label="Goal" value={number(totalTarget, 1)} />
-        <CompactMetric label="Done" value={number(totalActual)} />
+      <div className="mt-3 rounded-2xl bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-3 ring-1 ring-slate-200">
+        <div className="flex items-center justify-between gap-3 text-sm font-black">
+          <span className="text-slate-600">Daily progress</span>
+          <span className="shrink-0 text-slate-950">{number(totalActual)} / {number(totalTarget, 1)} sales</span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+          <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, dailyProgress)}%` }} />
+        </div>
       </div>
 
-      <div className="mt-4 rounded-3xl bg-slate-50 p-4">
+      <p className="mt-2 text-sm font-bold text-slate-500">{dayHelpText}</p>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <CompactMetric label="Done" value={number(totalActual)} />
+        <CompactMetric label="Goal" value={number(totalTarget, 1)} />
+      </div>
+
+      <div className="mt-3 rounded-3xl bg-slate-50 p-3">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-black uppercase tracking-wide text-slate-500">Log sales</div>
+          <div>
+            <div className="text-sm font-black uppercase tracking-wide text-slate-500">Add sales</div>
+            <div className="text-xs font-bold text-slate-500">Choose a block and amount.</div>
+          </div>
           <button
             type="button"
             onClick={() => setAddSalesOpen((value) => !value)}
@@ -1229,32 +1211,32 @@ function TodaySalesCard({ command, onSaveDay }) {
             {addSalesOpen ? "Close" : "Add Sales"}
           </button>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {visibleBlocks.map((block) => {
-            const selected = block.key === selectedBlock?.key;
-            return (
-              <button
-                key={block.key}
-                type="button"
-                onClick={() => setSelectedBlockKey(block.key)}
-                className={`rounded-2xl px-3 py-2 text-sm font-black transition ${
-                  selected ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"
-                }`}
-              >
-                {block.name}
-              </button>
-            );
-          })}
-        </div>
         {addSalesOpen && (
-          <div className="mt-4 rounded-3xl bg-white p-3 ring-1 ring-slate-200">
-            <div className="grid grid-cols-5 gap-2">
+          <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+            <div className="flex flex-wrap gap-1.5">
+              {visibleBlocks.map((block) => {
+                const selected = block.key === selectedBlock?.key;
+                return (
+                  <button
+                    key={block.key}
+                    type="button"
+                    onClick={() => setSelectedBlockKey(block.key)}
+                    className={`rounded-xl px-2.5 py-2 text-xs font-black transition ${
+                      selected ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {block.name}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 grid grid-cols-5 gap-1.5">
               {[1, 2, 3, 4, 5].map((amount) => (
                 <button
                   key={amount}
                   type="button"
                   onClick={() => setLogAmount(amount)}
-                  className={`min-h-11 rounded-2xl text-sm font-black ${
+                  className={`min-h-10 rounded-xl text-sm font-black ${
                     Number(logAmount) === amount ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700"
                   }`}
                 >
@@ -1269,35 +1251,24 @@ function TodaySalesCard({ command, onSaveDay }) {
                 min="1"
                 value={logAmount}
                 onChange={(event) => setLogAmount(Math.max(1, Number(event.target.value || 1)))}
-                className="min-h-12 rounded-2xl border border-slate-200 bg-white px-4 text-center font-black outline-none focus:border-emerald-400"
+                className="min-h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-center font-black outline-none focus:border-emerald-400"
               />
-              <button type="button" onClick={logSale} className="min-h-12 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-card">
+              <button type="button" onClick={logSale} className="min-h-11 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-card">
                 Log Sales
               </button>
             </div>
           </div>
         )}
         <div className="mt-2 text-xs font-bold text-slate-500">
-          {addSalesOpen ? "Choose an amount, then log it." : "Pick a block, then tap Add Sales."} {selectedBlock?.name || "Selected block"}: {number(selectedBlockActual)} / {number(selectedBlockTarget, 1)} logged.
+          {addSalesOpen ? "Choose an amount, then log it." : "Tap Add Sales to choose a block and quantity."} {selectedBlock?.name || "Selected block"}: {number(selectedBlockActual)} / {number(selectedBlockTarget, 1)} logged.
         </div>
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <button
             type="button"
             onClick={() => setEditOpen((value) => !value)}
             className="rounded-2xl bg-white px-3 py-3 text-xs font-black text-slate-700 ring-1 ring-slate-200"
           >
             {editOpen ? "Close" : "Edit"}
-          </button>
-          <button
-            type="button"
-            onClick={undoLastQuickAdd}
-            disabled={!lastQuickAdd}
-            className="rounded-2xl bg-white px-3 py-3 text-xs font-black text-slate-700 ring-1 ring-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Undo
-          </button>
-          <button type="button" onClick={clearCurrentBlock} className="rounded-2xl bg-white px-3 py-3 text-xs font-black text-slate-700 ring-1 ring-slate-200">
-            Clear block
           </button>
           <button type="button" onClick={clearToday} className="rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700">
             Clear day
@@ -1344,6 +1315,14 @@ function TodaySalesCard({ command, onSaveDay }) {
               </div>
             </div>
             <Progress value={(Number(block.actual_sales || 0) / Math.max(1, Number(block.target || 0))) * 100} tone="purple" />
+            <button
+              type="button"
+              onClick={() => clearBlock(block)}
+              disabled={Number(block.actual_sales || 0) <= 0}
+              className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Clear {block.name}
+            </button>
           </div>
         ))}
       </div>
