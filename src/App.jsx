@@ -21,8 +21,6 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -941,38 +939,16 @@ function SetupWizard({ user, onCreated, setError, error }) {
 function Dashboard({ command, setPage, onSaveDay }) {
   const completion = command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0;
   return (
-    <div className="grid gap-5">
-      <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
-        <TodaySalesCard command={command} onSaveDay={onSaveDay} />
-        <div className="grid gap-5">
-          <CoachSummary command={command} />
-          <RewardSummary command={command} setPage={setPage} />
-        </div>
-      </section>
+    <div className="grid gap-4">
+      <CoachSummary command={command} />
+      <TodaySalesCard command={command} onSaveDay={onSaveDay} />
 
-      <section className="grid gap-5 lg:grid-cols-2">
-        <Card title="This week" icon={Calendar}>
+      <section className="grid gap-4 lg:grid-cols-2">
+        <CompactWeekCard command={command} />
+        <Card title="Season" icon={Target} compact>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-500">{formatRange(command.currentWeek.week_start, command.currentWeek.week_end)}</div>
-              <div className="mt-2 text-3xl font-black">{number(command.currentWeekActual)} / {number(command.currentWeek.weekly_goal)}</div>
-              <div className="mt-1 text-sm font-bold text-slate-500">sales submitted</div>
-            </div>
-            <Badge tone={command.currentWeekRemaining <= 0 ? "ahead" : command.requiredThisWeek > command.plan.max_sales_per_day ? "critical" : "on_track"}>
-              {command.currentWeekRemaining <= 0 ? "Ahead" : "Active"}
-            </Badge>
-          </div>
-          <Progress value={(command.currentWeekActual / Math.max(1, command.currentWeek.weekly_goal)) * 100} />
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <MiniMetric label="Need" value={number(command.currentWeekRemaining, 1)} />
-            <MiniMetric label="Days left" value={number(command.currentWeekCapacity, 1)} />
-            <MiniMetric label="/ workday" value={number(command.requiredThisWeek, 1)} />
-          </div>
-        </Card>
-        <Card title="Season progress" icon={Target}>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-4xl font-black">{percent(completion)}</div>
+              <div className="text-3xl font-black">{percent(completion)}</div>
               <div className="mt-1 text-sm font-bold text-slate-500">
                 {number(command.completed)} of {number(command.plan.total_goal)} sales
               </div>
@@ -980,46 +956,36 @@ function Dashboard({ command, setPage, onSaveDay }) {
             <Badge tone={command.paceStatus.key}>{command.paceStatus.label}</Badge>
           </div>
           <Progress value={completion} />
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <MiniMetric label="Remaining" value={number(command.remaining)} />
-            <MiniMetric label="Workdays" value={number(command.remainingWorkCapacity, 1)} />
-            <MiniMetric label="/ workday" value={number(command.requiredPerWorkday, 1)} />
+          <div className="mt-3 text-sm font-bold text-slate-500">
+            {number(command.remaining)} remaining · {number(command.requiredPerWorkday, 1)} per workday
           </div>
         </Card>
       </section>
-
-      <section className="hidden gap-5 lg:grid">
-        <Card title="Actual vs goal pace" icon={BarChart3}>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={command.charts.goalLine}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="goal" stroke="#6366f1" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="actual" stroke="#10b981" strokeWidth={3} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-      </section>
+      <RewardSummary command={command} setPage={setPage} />
     </div>
   );
 }
 
 function CoachSummary({ command }) {
-  const message = command.catchup.messages[0] || heroMessage(command);
+  const rewardMessage = command.nextIncentive
+    ? `You are ${number(Math.max(0, command.nextIncentive.target - command.nextIncentive.current), 1)} away from ${command.nextIncentive.title}.`
+    : "Log sales by block to keep the day accurate.";
+  const message =
+    command.todayPlan?.dayType === "off"
+      ? "Today is off. Bonus sales still count."
+      : command.salesNeededToday > 0
+        ? `You need ${number(command.salesNeededToday, 1)} sales today to stay on pace.`
+        : rewardMessage;
   return (
-    <section className="gradient-hero rounded-[2rem] p-5 text-white shadow-glow md:p-6">
-      <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-2 text-xs font-black">
-        <Sparkles size={15} /> Coach
-      </div>
-      <h2 className="text-2xl font-black tracking-tight">{heroMessage(command)}</h2>
-      <p className="mt-3 text-sm font-bold leading-6 text-white/80">{message}</p>
-      <div className="mt-4 rounded-3xl bg-white/12 p-4 text-sm font-bold">
-        Today: {number(command.salesNeededToday, 1)} sales keeps the plan moving.
+    <section className="glass-card rounded-3xl p-4">
+      <div className="flex items-start gap-3">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-slate-950 text-white">
+          <Sparkles size={18} />
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs font-black uppercase tracking-wide text-slate-400">Coach</div>
+          <p className="mt-1 text-base font-black leading-6 text-slate-950">{message}</p>
+        </div>
       </div>
     </section>
   );
@@ -1027,13 +993,14 @@ function CoachSummary({ command }) {
 
 function RewardSummary({ command, setPage }) {
   return (
-    <Card title="Next reward" icon={Gift}>
+    <Card title="Next reward" icon={Gift} compact>
       {command.nextIncentive ? (
         <>
-          <div className="min-w-0 text-2xl font-black break-words">{command.nextIncentive.title}</div>
+          <div className="min-w-0 text-xl font-black break-words">{command.nextIncentive.title}</div>
           <Progress value={command.nextIncentive.progress} tone="purple" />
-          <div className="mt-3 text-sm font-bold text-slate-500">
-            {number(command.nextIncentive.current, 1)} / {number(command.nextIncentive.target, 1)} complete
+          <div className="mt-3 flex flex-wrap justify-between gap-2 text-sm font-bold text-slate-500">
+            <span>{number(command.nextIncentive.current, 1)} / {number(command.nextIncentive.target, 1)}</span>
+            <span>{number(Math.max(0, command.nextIncentive.target - command.nextIncentive.current), 1)} away</span>
           </div>
         </>
       ) : (
@@ -1048,6 +1015,31 @@ function RewardSummary({ command, setPage }) {
   );
 }
 
+function CompactWeekCard({ command }) {
+  const progress = (command.currentWeekActual / Math.max(1, command.currentWeek.weekly_goal)) * 100;
+  const message =
+    command.currentWeekRemaining <= 0
+      ? "Strong week. Protect the lead."
+      : `${number(command.currentWeekRemaining, 1)} sales needed this week.`;
+  return (
+    <Card title="This week" icon={Calendar} compact>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-bold text-slate-500">{formatRange(command.currentWeek.week_start, command.currentWeek.week_end)}</div>
+          <div className="mt-1 text-2xl font-black">{number(command.currentWeekActual)} / {number(command.currentWeek.weekly_goal)}</div>
+        </div>
+        <Badge tone={command.currentWeekRemaining <= 0 ? "ahead" : command.requiredThisWeek > command.plan.max_sales_per_day ? "critical" : "on_track"}>
+          {command.currentWeekRemaining <= 0 ? "Ahead" : "Active"}
+        </Badge>
+      </div>
+      <Progress value={progress} />
+      <div className="mt-3 text-sm font-bold text-slate-500">
+        {message} {command.currentWeekCapacity > 0 ? `${number(command.requiredThisWeek, 1)} per workday.` : ""}
+      </div>
+    </Card>
+  );
+}
+
 function TodaySalesCard({ command, onSaveDay }) {
   const today = command.todayPlan;
   const [notes, setNotes] = useState(today?.notes || "");
@@ -1055,6 +1047,8 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [blockDrafts, setBlockDrafts] = useState(() => blockDraftsFromDay(today));
   const [lastQuickAdd, setLastQuickAdd] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [showAllBlocks, setShowAllBlocks] = useState(false);
+  const [logAmount, setLogAmount] = useState(1);
   const visibleBlocks = blockDrafts.filter((block) => block.active && !block.is_break);
   const currentBlock = visibleBlocks.find((block) => block.isCurrent) || today?.timeBlocks.currentBlock;
 
@@ -1064,6 +1058,8 @@ function TodaySalesCard({ command, onSaveDay }) {
     setBlockDrafts(blockDraftsFromDay(today));
     setLastQuickAdd(null);
     setEditOpen(false);
+    setShowAllBlocks(false);
+    setLogAmount(1);
   }, [today]);
 
   if (!today) return null;
@@ -1072,31 +1068,38 @@ function TodaySalesCard({ command, onSaveDay }) {
   const totalTarget = today.plannedTarget;
   const remaining = Math.max(0, totalTarget - totalActual);
   const activeBlock = currentBlock && !currentBlock.is_break ? currentBlock : visibleBlocks.find((block) => !block.isPast) || visibleBlocks[0];
+  const activeBlockActual = Number(activeBlock?.actual_sales || 0);
+  const activeBlockTarget = Number(activeBlock?.target || 0);
+  const activeBlockRemaining = Math.max(0, activeBlockTarget - activeBlockActual);
 
-  function quickAdd(amount, key = activeBlock?.key) {
+  async function logSale() {
+    const key = activeBlock?.key;
     if (!key) return;
-    setManualSales((value) => Number(value || 0) + amount);
-    setLastQuickAdd({ amount, key });
-    setBlockDrafts((current) =>
-      current.map((block) =>
-        block.key === key
-          ? { ...block, actual_sales: Number(block.actual_sales || 0) + amount, status: "current" }
-          : block,
-      ),
+    const amount = Math.max(1, Number(logAmount || 1));
+    const updatedBlocks = blockDrafts.map((block) =>
+      block.key === key
+        ? { ...block, actual_sales: Number(block.actual_sales || 0) + amount, status: "current" }
+        : block,
     );
+    const updatedTotal = Number(manualSales || 0) + amount;
+    setManualSales(updatedTotal);
+    setLastQuickAdd({ amount, key });
+    setBlockDrafts(updatedBlocks);
+    await save(updatedBlocks, updatedTotal, key);
   }
 
-  function undoLastQuickAdd() {
+  async function undoLastQuickAdd() {
     if (!lastQuickAdd) return;
-    setManualSales((value) => Math.max(0, Number(value || 0) - lastQuickAdd.amount));
-    setBlockDrafts((current) =>
-      current.map((block) =>
+    const updatedTotal = Math.max(0, Number(manualSales || 0) - lastQuickAdd.amount);
+    const updatedBlocks = blockDrafts.map((block) =>
         block.key === lastQuickAdd.key
           ? { ...block, actual_sales: Math.max(0, Number(block.actual_sales || 0) - lastQuickAdd.amount) }
           : block,
-      ),
     );
+    setManualSales(updatedTotal);
+    setBlockDrafts(updatedBlocks);
     setLastQuickAdd(null);
+    await save(updatedBlocks, updatedTotal, lastQuickAdd.key);
   }
 
   async function clearToday() {
@@ -1116,16 +1119,16 @@ function TodaySalesCard({ command, onSaveDay }) {
     setManualSales((value) => Math.max(0, Number(value || 0) - currentValue));
     setBlockDrafts(clearedBlocks);
     setLastQuickAdd(null);
-    await save(clearedBlocks, Math.max(0, Number(manualSales || 0) - currentValue));
+    await save(clearedBlocks, Math.max(0, Number(manualSales || 0) - currentValue), activeBlock.key);
   }
 
-  async function save(blocks = blockDrafts, totalOverride = manualSales) {
+  async function save(blocks = blockDrafts, totalOverride = manualSales, activeKey = activeBlock?.key) {
     const currentTotal = blocks.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
     const diff = Number(totalOverride || 0) - currentTotal;
     const blocksToSave =
-      diff !== 0 && activeBlock
+      diff !== 0 && activeKey
         ? blocks.map((block) =>
-            block.key === activeBlock.key
+            block.key === activeKey
               ? { ...block, actual_sales: Math.max(0, Number(block.actual_sales || 0) + diff) }
               : block,
           )
@@ -1148,27 +1151,24 @@ function TodaySalesCard({ command, onSaveDay }) {
   }
 
   return (
-    <section className="glass-card rounded-[2rem] p-5 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <section className="glass-card rounded-3xl p-4 md:p-5">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
-          <h2 className="mt-1 text-3xl font-black tracking-tight">{formatDate(today.date, { weekday: "long" })}</h2>
-          <p className="mt-2 text-sm font-bold text-slate-500">
-            {today.dayType === "off"
-              ? "Today is marked off. You can still log bonus sales."
-              : today.timeBlocks.message}
-          </p>
+          <h2 className="mt-1 text-xl font-black tracking-tight">{formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}</h2>
         </div>
         <Badge tone={statusTone(today.status)}>{today.status}</Badge>
       </div>
+      {today.dayType === "off" && (
+        <p className="mt-2 text-sm font-bold text-slate-500">Today is marked off. Bonus sales still count.</p>
+      )}
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <MiniMetric label="Goal" value={number(totalTarget, 1)} />
-        <MiniMetric label="Done" value={number(totalActual)} />
-        <MiniMetric label="Left" value={number(remaining, 1)} />
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <CompactMetric label="Goal" value={number(totalTarget, 1)} />
+        <CompactMetric label="Done" value={number(totalActual)} />
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-2">
+      <div className="mt-3 grid grid-cols-3 gap-2">
         <button
           type="button"
           onClick={() => setEditOpen((value) => !value)}
@@ -1194,7 +1194,7 @@ function TodaySalesCard({ command, onSaveDay }) {
       </div>
 
       {editOpen && (
-        <div className="mt-4 rounded-3xl bg-slate-50 p-4">
+        <div className="mt-3 rounded-3xl bg-slate-50 p-4">
           <div className="grid gap-3 md:grid-cols-[0.4fr_1fr]">
             <Field label="Manual total" type="number" value={manualSales} onChange={setManualSales} />
             <Field label="Notes" value={notes} onChange={setNotes} />
@@ -1205,78 +1205,99 @@ function TodaySalesCard({ command, onSaveDay }) {
         </div>
       )}
 
-      <div className="mt-5 rounded-3xl bg-slate-950 p-4 text-white">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-4 rounded-3xl bg-slate-950 p-4 text-white">
+        <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-xs font-black uppercase tracking-wide text-white/55">Current block</div>
-            <div className="text-2xl font-black">{activeBlock?.name || "Day review"}</div>
+            <div className="text-xl font-black">{activeBlock?.name || "Day review"}</div>
           </div>
           <div className="text-right text-sm font-bold text-white/75">
             {activeBlock?.minutesLeft ? `${Math.floor(activeBlock.minutesLeft / 60)}h ${activeBlock.minutesLeft % 60}m left` : "Final results"}
-            <div className="text-white">{number(activeBlock?.remaining || remaining, 1)} needed</div>
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {[1, 2, 5].map((amount) => (
-            <button
-              key={amount}
-              type="button"
-              onClick={() => quickAdd(amount)}
-              className="rounded-2xl bg-white px-4 py-3 font-black text-slate-950 transition hover:-translate-y-0.5"
-            >
-              +{amount}
-            </button>
-          ))}
+        <Progress value={(activeBlockActual / Math.max(1, activeBlockTarget)) * 100} tone="white" />
+        <div className="mt-3 grid grid-cols-2 gap-3 text-sm font-bold text-white/75">
+          <div>Logged: <span className="text-white">{number(activeBlockActual)}</span></div>
+          <div className="text-right">Needed: <span className="text-white">{number(activeBlockRemaining || remaining, 1)}</span></div>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="mt-4 grid grid-cols-[auto_1fr] items-center gap-3">
+          <div className="flex items-center rounded-2xl bg-white/10 p-1">
+            <button
+              type="button"
+              onClick={() => setLogAmount((value) => Math.max(1, Number(value || 1) - 1))}
+              className="grid h-11 w-11 place-items-center rounded-xl bg-white/10 text-lg font-black"
+            >
+              -
+            </button>
+            <input
+              aria-label="Sales to log"
+              type="number"
+              min="1"
+              value={logAmount}
+              onChange={(event) => setLogAmount(Math.max(1, Number(event.target.value || 1)))}
+              className="h-11 w-14 border-0 bg-transparent px-2 text-center text-lg font-black text-white outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => setLogAmount((value) => Number(value || 1) + 1)}
+              className="grid h-11 w-11 place-items-center rounded-xl bg-white/10 text-lg font-black"
+            >
+              +
+            </button>
+          </div>
+          <button type="button" onClick={logSale} className="min-h-12 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950">
+            Log to {activeBlock?.name || "today"}
+          </button>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
           <button
             type="button"
             onClick={undoLastQuickAdd}
             disabled={!lastQuickAdd}
-            className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             Undo
           </button>
-          <button type="button" onClick={clearCurrentBlock} className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white">
+          <button type="button" onClick={clearCurrentBlock} className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-black text-white">
             Clear block
           </button>
-          <button type="button" onClick={clearToday} className="rounded-2xl bg-red-500/80 px-4 py-3 text-sm font-black text-white">
+          <button type="button" onClick={clearToday} className="rounded-2xl bg-red-500/80 px-3 py-3 text-xs font-black text-white">
             Clear today
           </button>
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3">
+      <button
+        type="button"
+        onClick={() => setShowAllBlocks((value) => !value)}
+        className="mt-3 w-full rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700"
+      >
+        {showAllBlocks ? "Hide full day" : "View full day"}
+      </button>
+
+      {showAllBlocks && (
+      <div className="mt-3 grid gap-2">
         {visibleBlocks.map((block) => (
           <div
             key={block.key}
-            className={`rounded-3xl border p-4 ${
+            className={`rounded-2xl border p-3 ${
               block.isCurrent ? "border-indigo-300 bg-indigo-50" : "border-slate-200 bg-white"
             }`}
           >
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate font-black">{block.name}</div>
                 <div className="text-xs font-bold text-slate-500">{block.start_time} - {block.end_time}</div>
               </div>
-              <Badge tone={statusTone(block.status)}>{block.status}</Badge>
-            </div>
-            <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
-              <div>
-                <Progress value={(Number(block.actual_sales || 0) / Math.max(1, Number(block.target || 0))) * 100} tone={block.is_break ? "slate" : "purple"} />
-                <div className="mt-2 text-sm font-bold text-slate-500">
-                  {number(block.actual_sales || 0)} / {number(block.target || 0, 1)} sales
-                </div>
+              <div className="shrink-0 text-sm font-black text-slate-600">
+                {number(block.actual_sales || 0)} / {number(block.target || 0, 1)}
               </div>
-              {block.key === activeBlock?.key && <div className="text-xs font-black uppercase text-indigo-600">Current</div>}
             </div>
+            <Progress value={(Number(block.actual_sales || 0) / Math.max(1, Number(block.target || 0))) * 100} tone="purple" />
           </div>
         ))}
       </div>
-
-      <button type="button" onClick={() => save()} className="mt-4 w-full rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white shadow-card transition hover:-translate-y-0.5">
-        Save today
-      </button>
+      )}
     </section>
   );
 }
@@ -1984,14 +2005,14 @@ function CoachCard({ command }) {
   );
 }
 
-function Card({ title, icon: Icon, children }) {
+function Card({ title, icon: Icon, children, compact = false }) {
   return (
-    <section className="glass-card rounded-[2rem] p-5">
-      <div className="mb-5 flex items-center gap-3">
-        <div className="grid h-11 w-11 place-items-center rounded-2xl bg-slate-950 text-white">
+    <section className={`glass-card rounded-3xl ${compact ? "p-4" : "p-5"}`}>
+      <div className={`${compact ? "mb-3" : "mb-5"} flex items-center gap-3`}>
+        <div className={`${compact ? "h-10 w-10" : "h-11 w-11"} grid place-items-center rounded-2xl bg-slate-950 text-white`}>
           <Icon size={20} />
         </div>
-        <h2 className="text-xl font-black">{title}</h2>
+        <h2 className={`${compact ? "text-lg" : "text-xl"} font-black`}>{title}</h2>
       </div>
       {children}
     </section>
@@ -2098,6 +2119,15 @@ function MiniMetric({ label, value }) {
   );
 }
 
+function CompactMetric({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 px-3 py-3">
+      <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="mt-1 text-2xl font-black">{value}</div>
+    </div>
+  );
+}
+
 function EditableList({ items, empty, render }) {
   return (
     <div className="mt-5 grid gap-3">
@@ -2181,13 +2211,6 @@ function blockDraftsFromDay(day) {
 
 function LoadingScreen() {
   return <div className="grid min-h-screen place-items-center text-xl font-black text-slate-600">Loading your command center...</div>;
-}
-
-function heroMessage(command) {
-  if (command.paceStatus.key === "ahead") return "You're ahead. Protect the lead.";
-  if (command.paceStatus.key === "behind") return `You're behind by ${number(Math.abs(command.aheadBehind), 1)} sales. Catch-up mode is active.`;
-  if (command.paceStatus.key === "critical") return "Your plan needs adjustment. Add capacity or revise the date range.";
-  return "Push today, future you gets relief.";
 }
 
 function statusTone(status) {
