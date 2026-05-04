@@ -334,7 +334,7 @@ export default function App() {
       target_sales: Number(block.target_sales ?? block.target ?? 0),
       actual_sales: Number(block.actual_sales ?? block.actual ?? 0),
       notes: block.notes || "",
-      status: block.status || "not_started",
+      status: normalizeTimeBlockStatus(block.status),
       capacity_weight: Number(block.capacity_weight ?? 1),
       include_in_calculations: block.include_in_calculations !== false,
     }));
@@ -1100,11 +1100,15 @@ function TodaySalesCard({ command, onSaveDay }) {
   const remaining = Math.max(0, totalTarget - totalActual);
   const activeBlock = currentBlock && !currentBlock.is_break ? currentBlock : visibleBlocks.find((block) => !block.isPast) || visibleBlocks[0];
   const selectedBlock = visibleBlocks.find((block) => block.key === selectedBlockKey) || activeBlock || visibleBlocks[0];
-  const activeBlockActual = Number(activeBlock?.actual_sales || 0);
-  const activeBlockTarget = Number(activeBlock?.target || 0);
-  const activeBlockRemaining = Math.max(0, activeBlockTarget - activeBlockActual);
   const selectedBlockActual = Number(selectedBlock?.actual_sales || 0);
   const selectedBlockTarget = Number(selectedBlock?.target || 0);
+  const dailyProgress = (totalActual / Math.max(1, totalTarget)) * 100;
+  const dayHelpText =
+    today.dayType === "off"
+      ? "Today is marked off. Bonus sales still count."
+      : remaining <= 0
+        ? "Daily goal covered. Extra sales count."
+        : `${number(remaining, 1)} sales left for today's goal.`;
 
   async function logSale() {
     const key = selectedBlock?.key;
@@ -1186,36 +1190,28 @@ function TodaySalesCard({ command, onSaveDay }) {
 
   return (
     <section className="glass-card rounded-3xl p-4 md:p-5">
-      <div className="rounded-3xl bg-slate-950 p-4 text-white">
-        <div className="flex items-start justify-between gap-3">
+      <div className="rounded-3xl bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-3 ring-1 ring-slate-200">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs font-black uppercase tracking-wide text-white/55">Current phase</div>
-            <div className="mt-1 text-xl font-black">{activeBlock?.name || "Day review"}</div>
+            <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
+            <div className="mt-1 text-sm font-black text-slate-700">Daily goal progress</div>
           </div>
-          <div className="text-right text-sm font-bold text-white/75">
-            {activeBlock?.minutesLeft ? `${Math.floor(activeBlock.minutesLeft / 60)}h ${activeBlock.minutesLeft % 60}m left` : "Final results"}
+          <div className="shrink-0 rounded-2xl bg-white px-3 py-2 text-sm font-black text-slate-900 ring-1 ring-slate-200">
+            {number(totalActual)} / {number(totalTarget, 1)}
           </div>
         </div>
-        <Progress value={(totalActual / Math.max(1, totalTarget)) * 100} tone="white" />
-        <div className="mt-3 grid grid-cols-2 gap-3 text-sm font-bold text-white/75">
-          <div>Done: <span className="text-white">{number(totalActual)}</span></div>
-          <div className="text-right">Goal: <span className="text-white">{number(totalTarget, 1)}</span></div>
-        </div>
-        <div className="mt-1 text-xs font-bold text-white/55">
-          {activeBlock?.name || "Current phase"}: {number(activeBlockActual)} logged · {number(activeBlockRemaining || remaining, 1)} needed
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+          <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, dailyProgress)}%` }} />
         </div>
       </div>
 
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="mt-4 text-sm font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
-          <h2 className="mt-1 text-xl font-black tracking-tight">{formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}</h2>
+          <h2 className="mt-4 text-xl font-black tracking-tight">{formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}</h2>
+          <p className="mt-1 text-sm font-bold text-slate-500">{dayHelpText}</p>
         </div>
         <Badge tone={statusTone(today.status)}>{today.status}</Badge>
       </div>
-      {today.dayType === "off" && (
-        <p className="mt-2 text-sm font-bold text-slate-500">Today is marked off. Bonus sales still count.</p>
-      )}
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         <CompactMetric label="Goal" value={number(totalTarget, 1)} />
@@ -2274,6 +2270,14 @@ function statusTone(status) {
   if (lower.includes("behind") || lower.includes("push")) return "behind";
   if (lower.includes("critical") || lower.includes("missed")) return "critical";
   return "neutral";
+}
+
+function normalizeTimeBlockStatus(status) {
+  const value = String(status || "not_started").trim().toLowerCase().replace(/\s+/g, "_");
+  if (value === "complete" || value === "completed") return "complete";
+  if (value === "skipped" || value === "off") return "skipped";
+  if (value === "partial" || value === "half_day") return "partial";
+  return "not_started";
 }
 
 function getCalendarRange(mode, anchor, customStart, customEnd, command) {
