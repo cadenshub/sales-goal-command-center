@@ -21,6 +21,17 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { isSupabaseConfigured } from "./lib/supabase";
 import {
   createWorkspace,
@@ -1812,109 +1823,155 @@ function ThemeToggle({ theme, onToggle }) {
 
 function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
   const currentWeek = command.weeks.find((week) => week.week_start === command.currentWeek.week_start && week.week_end === command.currentWeek.week_end) || command.currentWeek;
+  const [showWeekEditor, setShowWeekEditor] = useState(false);
+  const stats = statsPageSummary(command, currentWeek);
   return (
     <div className="grid gap-5">
-      <WeeklyGoalTracker week={currentWeek} command={command} />
-      <div className="grid gap-4 xl:grid-cols-2">
-        {command.weeks.map((week) => (
-          <WeekCard key={`${week.week_start}-${week.week_end}-${week.id || ""}`} week={week} command={command} saveWeek={saveWeek} removeWeek={removeWeek} saveDay={saveDay} />
-        ))}
-      </div>
+      <StatsTotals stats={stats} />
+      <SeasonStatsProgress command={command} />
+      <WeeklyOverviewGraph weeks={command.weeks} />
+      <WeeklyOverviewList weeks={command.weeks} />
+      <Card title="Week goals" icon={Edit3} compact>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-bold text-slate-500">Week editing is tucked away for now so the stats stay easy to scan.</p>
+          <button
+            type="button"
+            onClick={() => setShowWeekEditor((value) => !value)}
+            className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white"
+          >
+            {showWeekEditor ? "Hide week goals" : "Edit week goals"}
+          </button>
+        </div>
+        {showWeekEditor && (
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            {command.weeks.map((week) => (
+              <WeekCard key={`${week.week_start}-${week.week_end}-${week.id || ""}`} week={week} command={command} saveWeek={saveWeek} removeWeek={removeWeek} saveDay={saveDay} />
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
 
-function WeeklyGoalTracker({ week, command }) {
-  const stats = weeklyPaceStats(week, command);
+function StatsTotals({ stats }) {
   return (
-    <Card title="Weekly stats" icon={BarChart3}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-bold text-slate-500">{formatRange(week.week_start, week.week_end)}</div>
-          <div className="mt-1 text-3xl font-black text-slate-950 dark:text-slate-50">
-            {number(stats.actual)} / {number(stats.goal)}
-          </div>
-          <div className="mt-1 text-sm font-black text-slate-500">{number(stats.progress, 0)}% complete</div>
-        </div>
-        <Badge tone={stats.remaining <= 0 ? "ahead" : stats.diff >= 0 ? "on_track" : "behind"}>{stats.status}</Badge>
-      </div>
-
-      <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
-        <div className="mb-2 flex items-center justify-between gap-3 text-xs font-black uppercase tracking-wide text-slate-500">
-          <span>Actual progress</span>
-          <span>Pace: {number(stats.expected, 1)}</span>
-        </div>
-        <div className="relative h-5 overflow-visible rounded-full bg-white shadow-inner ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-          <div
-            className="progress-shine h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500"
-            style={{ width: percent(stats.actualPercent) }}
-          />
-          {stats.goal > 0 && (
-            <div
-              className="absolute -top-1 h-7 w-1 rounded-full bg-slate-950 shadow-card dark:bg-white"
-              style={{ left: `calc(${percent(stats.pacePercent)} - 2px)` }}
-              aria-label="Goal pace marker"
-            />
-          )}
-        </div>
-        <div className="mt-2 flex items-center justify-between text-xs font-bold text-slate-500">
-          <span>0</span>
-          <span>{number(stats.goal)} goal</span>
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-2xl bg-indigo-50 p-4 text-sm font-black text-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-100">
-        {stats.message}
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <MiniMetric label="Need" value={number(stats.remaining, 1)} />
-        <MiniMetric label="Days left" value={number(stats.remainingCapacity, 1)} />
-        <MiniMetric label="/ workday" value={number(stats.requiredPerDay, 1)} />
+    <Card title="Sales Stats" icon={BarChart3}>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile label="Week Total" value={`${number(stats.week.actual)} / ${number(stats.week.goal)}`} detail={`${number(stats.week.progress, 0)}% of goal`} />
+        <StatTile label="Month Total" value={number(stats.month.actual)} detail={stats.month.goal ? `${number(stats.month.goal)} monthly goal` : "Current month sales"} />
+        <StatTile label="Season Total" value={`${number(stats.season.actual)} / ${number(stats.season.goal)}`} detail={`${number(stats.season.progress, 0)}% complete`} />
+        <StatTile label="Incentives Met" value={`${number(stats.incentives.met)} / ${number(stats.incentives.total)}`} detail="Achieved or claimed" />
       </div>
     </Card>
   );
 }
 
-function weeklyPaceStats(week, command) {
-  const goal = Number(week.weekly_goal || 0);
-  const actual = Number(week.actual ?? command.currentWeekActual ?? 0);
-  const weekDays = command.dayPlans.filter((day) => day.date >= week.week_start && day.date <= week.week_end);
-  const totalCapacity = weekDays.reduce((sum, day) => sum + Math.max(0, Number(day.capacity || 0)), 0);
-  const elapsedCapacity = weekDays
-    .filter((day) => day.date <= command.today)
-    .reduce((sum, day) => sum + Math.max(0, Number(day.capacity || 0)), 0);
-  const expected = goal > 0 && totalCapacity > 0 ? (goal * Math.min(elapsedCapacity, totalCapacity)) / totalCapacity : 0;
-  const diff = actual - expected;
-  const remaining = Math.max(0, goal - actual);
-  const remainingCapacity = Number(week.remainingCapacity ?? command.currentWeekCapacity ?? 0);
-  const requiredPerDay = remainingCapacity > 0 ? remaining / remainingCapacity : 0;
-  const progress = goal > 0 ? (actual / goal) * 100 : 0;
-  const actualPercent = goal > 0 ? Math.min(100, progress) : 0;
-  const pacePercent = goal > 0 ? Math.min(100, (expected / goal) * 100) : 0;
-  const status = remaining <= 0 ? "Goal met" : Math.abs(diff) < 0.5 ? "On pace" : diff > 0 ? "Ahead" : "Behind";
-  const message =
-    remaining <= 0
-      ? "Goal met. Everything else is bonus."
-      : diff >= 0.5
-        ? `You're ${number(diff, 1)} ahead of pace. Keep it steady.`
-        : diff <= -0.5
-          ? `You're ${number(Math.abs(diff), 1)} behind pace.`
-          : `You need ${number(remaining, 1)} more sales this week.`;
+function SeasonStatsProgress({ command }) {
+  const progress = command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0;
+  return (
+    <Card title="Season progress" icon={Target} compact>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-3xl font-black text-slate-950 dark:text-slate-50">{number(command.completed)} / {number(command.plan.total_goal)}</div>
+          <div className="mt-1 text-sm font-black text-slate-500">season sales</div>
+        </div>
+        <div className="text-2xl font-black text-indigo-600">{number(progress, 0)}%</div>
+      </div>
+      <Progress value={progress} />
+    </Card>
+  );
+}
+
+function WeeklyOverviewGraph({ weeks }) {
+  const data = weeklyGraphData(weeks);
+  const hasData = data.some((item) => item.actual > 0 || item.goal > 0);
+  return (
+    <Card title="Weekly Actual vs Goal" icon={TrendingUp}>
+      {!hasData ? (
+        <div className="rounded-3xl bg-slate-50 p-5 text-sm font-bold text-slate-500 dark:bg-slate-950">
+          Log more sales to see your weekly trend.
+        </div>
+      ) : (
+        <div className="h-64 sm:h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="actual" name="Actual" fill="#10b981" radius={[8, 8, 0, 0]} />
+              <Line type="monotone" dataKey="goal" name="Goal" stroke="#6366f1" strokeWidth={3} dot={{ r: 3 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function WeeklyOverviewList({ weeks }) {
+  return (
+    <Card title="Weekly overview" icon={Calendar} compact>
+      <div className="grid gap-3">
+        {weeks.map((week) => {
+          const progress = Number(week.progress || 0);
+          const badge = weeklyAchievement(progress / 100, week.weekly_goal);
+          return (
+            <div key={`${week.week_start}-${week.week_end}-${week.id || ""}`} className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-black text-slate-950 dark:text-slate-50">{formatRange(week.week_start, week.week_end)}</div>
+                  <div className="mt-1 text-xs font-bold text-slate-500">
+                    {number(week.actual)} / {number(week.weekly_goal)} sales
+                  </div>
+                </div>
+                {badge && <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-black ${badge.className}`}>{badge.label}</span>}
+              </div>
+              <Progress value={progress} />
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+function statsPageSummary(command, currentWeek) {
+  const monthActual = command.dayPlans
+    .filter((day) => day.date >= command.currentMonthStart && day.date <= command.currentMonthEnd)
+    .reduce((sum, day) => sum + Number(day.actual || 0), 0);
+  const incentiveTotal = command.incentives.length;
+  const incentiveMet = command.incentives.filter((item) => item.status === "achieved" || item.status === "claimed").length;
   return {
-    goal,
-    actual,
-    expected,
-    diff,
-    remaining,
-    remainingCapacity,
-    requiredPerDay,
-    progress,
-    actualPercent,
-    pacePercent,
-    status,
-    message,
+    week: {
+      actual: Number(currentWeek.actual ?? command.currentWeekActual ?? 0),
+      goal: Number(currentWeek.weekly_goal || 0),
+      progress: Number(currentWeek.progress || 0),
+    },
+    month: {
+      actual: monthActual,
+      goal: 0,
+    },
+    season: {
+      actual: command.completed,
+      goal: Number(command.plan.total_goal || 0),
+      progress: command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0,
+    },
+    incentives: {
+      met: incentiveMet,
+      total: incentiveTotal,
+    },
   };
+}
+
+function weeklyGraphData(weeks) {
+  return weeks.map((week, index) => ({
+    label: `W${index + 1}`,
+    actual: Number(week.actual || 0),
+    goal: Number(week.weekly_goal || 0),
+  }));
 }
 
 function GoalsPage({ workspace, command, savePlan, saveSettings, saveWeek, removeWeek, saveGoalPeriod, removeGoalPeriod }) {
@@ -2522,6 +2579,16 @@ function MiniMetric({ label, value }) {
     <div className="rounded-2xl bg-slate-50 p-3">
       <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
       <div className="mt-1 text-lg font-black">{value}</div>
+    </div>
+  );
+}
+
+function StatTile({ label, value, detail }) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+      <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="mt-2 text-2xl font-black text-slate-950 dark:text-slate-50">{value}</div>
+      <div className="mt-1 text-sm font-bold text-slate-500">{detail}</div>
     </div>
   );
 }
