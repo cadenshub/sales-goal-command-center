@@ -21,16 +21,6 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { isSupabaseConfigured } from "./lib/supabase";
 import {
   createWorkspace,
@@ -1820,26 +1810,11 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay, saveWeeklyConfirmation }) {
+function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
   const currentWeek = command.weeks.find((week) => week.week_start === command.currentWeek.week_start && week.week_end === command.currentWeek.week_end) || command.currentWeek;
   return (
     <div className="grid gap-5">
-      <WeeklyConfirmationCard week={currentWeek} onSave={saveWeeklyConfirmation} />
-      <Card title="Weekly planner" icon={BarChart3}>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={command.charts.weekly}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="goal" fill="#6366f1" radius={[8, 8, 0, 0]} />
-              <Bar dataKey="actual" fill="#10b981" radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
+      <WeeklyGoalTracker week={currentWeek} command={command} />
       <div className="grid gap-4 xl:grid-cols-2">
         {command.weeks.map((week) => (
           <WeekCard key={`${week.week_start}-${week.week_end}-${week.id || ""}`} week={week} command={command} saveWeek={saveWeek} removeWeek={removeWeek} saveDay={saveDay} />
@@ -1849,59 +1824,97 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay, saveWeeklyConfi
   );
 }
 
-function WeeklyConfirmationCard({ week, onSave }) {
-  const confirmation = week.confirmation || {};
-  const [draft, setDraft] = useState({
-    serviced_accounts: confirmation.serviced_accounts ?? week.actual ?? 0,
-    active_accounts: confirmation.active_accounts ?? 0,
-    confirmed_sales: confirmation.confirmed_sales ?? week.actual ?? 0,
-    notes: confirmation.notes || "",
-  });
-  const pending = Math.max(0, Number(week.actual || 0) - Number(draft.confirmed_sales || 0));
-
-  useEffect(() => {
-    setDraft({
-      serviced_accounts: confirmation.serviced_accounts ?? week.actual ?? 0,
-      active_accounts: confirmation.active_accounts ?? 0,
-      confirmed_sales: confirmation.confirmed_sales ?? week.actual ?? 0,
-      notes: confirmation.notes || "",
-    });
-  }, [week.week_start, week.week_end, week.actual, confirmation.serviced_accounts, confirmation.active_accounts, confirmation.confirmed_sales, confirmation.notes]);
-
+function WeeklyGoalTracker({ week, command }) {
+  const stats = weeklyPaceStats(week, command);
   return (
-    <Card title="End-of-week confirmation" icon={CheckCircle2}>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <MiniMetric label="Submitted" value={number(week.actual)} />
-        <MiniMetric label="Serviced" value={number(draft.serviced_accounts)} />
-        <MiniMetric label="Active" value={number(draft.active_accounts)} />
-        <MiniMetric label="Confirmed" value={number(draft.confirmed_sales)} />
-        <MiniMetric label="Pending" value={number(pending)} />
+    <Card title="Weekly stats" icon={BarChart3}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-bold text-slate-500">{formatRange(week.week_start, week.week_end)}</div>
+          <div className="mt-1 text-3xl font-black text-slate-950 dark:text-slate-50">
+            {number(stats.actual)} / {number(stats.goal)}
+          </div>
+          <div className="mt-1 text-sm font-black text-slate-500">{number(stats.progress, 0)}% complete</div>
+        </div>
+        <Badge tone={stats.remaining <= 0 ? "ahead" : stats.diff >= 0 ? "on_track" : "behind"}>{stats.status}</Badge>
       </div>
-      <div className="mt-5 grid gap-4 md:grid-cols-3">
-        <Field label="Serviced accounts" type="number" value={draft.serviced_accounts} onChange={(v) => setDraft({ ...draft, serviced_accounts: v })} />
-        <Field label="Active accounts" type="number" value={draft.active_accounts} onChange={(v) => setDraft({ ...draft, active_accounts: v })} />
-        <Field label="Confirmed sales" type="number" value={draft.confirmed_sales} onChange={(v) => setDraft({ ...draft, confirmed_sales: v })} />
+
+      <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+        <div className="mb-2 flex items-center justify-between gap-3 text-xs font-black uppercase tracking-wide text-slate-500">
+          <span>Actual progress</span>
+          <span>Pace: {number(stats.expected, 1)}</span>
+        </div>
+        <div className="relative h-5 overflow-visible rounded-full bg-white shadow-inner ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+          <div
+            className="progress-shine h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500"
+            style={{ width: percent(stats.actualPercent) }}
+          />
+          {stats.goal > 0 && (
+            <div
+              className="absolute -top-1 h-7 w-1 rounded-full bg-slate-950 shadow-card dark:bg-white"
+              style={{ left: `calc(${percent(stats.pacePercent)} - 2px)` }}
+              aria-label="Goal pace marker"
+            />
+          )}
+        </div>
+        <div className="mt-2 flex items-center justify-between text-xs font-bold text-slate-500">
+          <span>0</span>
+          <span>{number(stats.goal)} goal</span>
+        </div>
       </div>
-      <div className="mt-4">
-        <Field label="Confirmation notes" value={draft.notes} onChange={(v) => setDraft({ ...draft, notes: v })} />
+
+      <div className="mt-4 rounded-2xl bg-indigo-50 p-4 text-sm font-black text-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-100">
+        {stats.message}
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setDraft({ ...draft, serviced_accounts: week.actual, active_accounts: 0, confirmed_sales: week.actual })}
-          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black"
-        >
-          Confirm all submitted
-        </button>
-        <button type="button" onClick={() => onSave(week, draft)} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white">
-          Save confirmation
-        </button>
-      </div>
-      <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-600">
-        Weekly goal: {number(week.weekly_goal)}. Confirmed difference: {number(Number(draft.confirmed_sales || 0) - Number(week.weekly_goal || 0), 1)}.
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <MiniMetric label="Need" value={number(stats.remaining, 1)} />
+        <MiniMetric label="Days left" value={number(stats.remainingCapacity, 1)} />
+        <MiniMetric label="/ workday" value={number(stats.requiredPerDay, 1)} />
       </div>
     </Card>
   );
+}
+
+function weeklyPaceStats(week, command) {
+  const goal = Number(week.weekly_goal || 0);
+  const actual = Number(week.actual ?? command.currentWeekActual ?? 0);
+  const weekDays = command.dayPlans.filter((day) => day.date >= week.week_start && day.date <= week.week_end);
+  const totalCapacity = weekDays.reduce((sum, day) => sum + Math.max(0, Number(day.capacity || 0)), 0);
+  const elapsedCapacity = weekDays
+    .filter((day) => day.date <= command.today)
+    .reduce((sum, day) => sum + Math.max(0, Number(day.capacity || 0)), 0);
+  const expected = goal > 0 && totalCapacity > 0 ? (goal * Math.min(elapsedCapacity, totalCapacity)) / totalCapacity : 0;
+  const diff = actual - expected;
+  const remaining = Math.max(0, goal - actual);
+  const remainingCapacity = Number(week.remainingCapacity ?? command.currentWeekCapacity ?? 0);
+  const requiredPerDay = remainingCapacity > 0 ? remaining / remainingCapacity : 0;
+  const progress = goal > 0 ? (actual / goal) * 100 : 0;
+  const actualPercent = goal > 0 ? Math.min(100, progress) : 0;
+  const pacePercent = goal > 0 ? Math.min(100, (expected / goal) * 100) : 0;
+  const status = remaining <= 0 ? "Goal met" : Math.abs(diff) < 0.5 ? "On pace" : diff > 0 ? "Ahead" : "Behind";
+  const message =
+    remaining <= 0
+      ? "Goal met. Everything else is bonus."
+      : diff >= 0.5
+        ? `You're ${number(diff, 1)} ahead of pace. Keep it steady.`
+        : diff <= -0.5
+          ? `You're ${number(Math.abs(diff), 1)} behind pace.`
+          : `You need ${number(remaining, 1)} more sales this week.`;
+  return {
+    goal,
+    actual,
+    expected,
+    diff,
+    remaining,
+    remainingCapacity,
+    requiredPerDay,
+    progress,
+    actualPercent,
+    pacePercent,
+    status,
+    message,
+  };
 }
 
 function GoalsPage({ workspace, command, savePlan, saveSettings, saveWeek, removeWeek, saveGoalPeriod, removeGoalPeriod }) {
