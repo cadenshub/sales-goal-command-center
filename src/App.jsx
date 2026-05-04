@@ -1058,6 +1058,7 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [lastQuickAdd, setLastQuickAdd] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
   const [showAllBlocks, setShowAllBlocks] = useState(false);
+  const [addSalesOpen, setAddSalesOpen] = useState(false);
   const [logAmount, setLogAmount] = useState(1);
   const [selectedBlockKey, setSelectedBlockKey] = useState("");
   const lastTodaySyncKeyRef = useRef("");
@@ -1077,6 +1078,7 @@ function TodaySalesCard({ command, onSaveDay }) {
   useEffect(() => {
     setEditOpen(false);
     setShowAllBlocks(false);
+    setAddSalesOpen(false);
     setLogAmount(1);
     setSelectedBlockKey("");
     setLastQuickAdd(null);
@@ -1194,10 +1196,13 @@ function TodaySalesCard({ command, onSaveDay }) {
             {activeBlock?.minutesLeft ? `${Math.floor(activeBlock.minutesLeft / 60)}h ${activeBlock.minutesLeft % 60}m left` : "Final results"}
           </div>
         </div>
-        <Progress value={(activeBlockActual / Math.max(1, activeBlockTarget)) * 100} tone="white" />
+        <Progress value={(totalActual / Math.max(1, totalTarget)) * 100} tone="white" />
         <div className="mt-3 grid grid-cols-2 gap-3 text-sm font-bold text-white/75">
-          <div>Logged: <span className="text-white">{number(activeBlockActual)}</span></div>
-          <div className="text-right">Needed: <span className="text-white">{number(activeBlockRemaining || remaining, 1)}</span></div>
+          <div>Done: <span className="text-white">{number(totalActual)}</span></div>
+          <div className="text-right">Goal: <span className="text-white">{number(totalTarget, 1)}</span></div>
+        </div>
+        <div className="mt-1 text-xs font-bold text-white/55">
+          {activeBlock?.name || "Current phase"}: {number(activeBlockActual)} logged · {number(activeBlockRemaining || remaining, 1)} needed
         </div>
       </div>
 
@@ -1218,7 +1223,16 @@ function TodaySalesCard({ command, onSaveDay }) {
       </div>
 
       <div className="mt-4 rounded-3xl bg-slate-50 p-4">
-        <div className="text-sm font-black uppercase tracking-wide text-slate-500">Log sales</div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-black uppercase tracking-wide text-slate-500">Log sales</div>
+          <button
+            type="button"
+            onClick={() => setAddSalesOpen((value) => !value)}
+            className="rounded-2xl bg-white px-3 py-2 text-sm font-black text-slate-700 ring-1 ring-slate-200"
+          >
+            {addSalesOpen ? "Close" : "Add Sales"}
+          </button>
+        </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {visibleBlocks.map((block) => {
             const selected = block.key === selectedBlock?.key;
@@ -1236,37 +1250,39 @@ function TodaySalesCard({ command, onSaveDay }) {
             );
           })}
         </div>
-        <div className="mt-4 grid grid-cols-[auto_1fr] items-center gap-3">
-          <div className="flex items-center rounded-2xl bg-white p-1 ring-1 ring-slate-200">
-            <button
-              type="button"
-              onClick={() => setLogAmount((value) => Math.max(1, Number(value || 1) - 1))}
-              className="grid h-11 w-11 place-items-center rounded-xl bg-slate-100 text-lg font-black text-slate-900"
-            >
-              -
-            </button>
-            <input
-              aria-label="Sales to log"
-              type="number"
-              min="1"
-              value={logAmount}
-              onChange={(event) => setLogAmount(Math.max(1, Number(event.target.value || 1)))}
-              className="h-11 w-14 border-0 bg-transparent px-2 text-center text-lg font-black text-slate-950 outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => setLogAmount((value) => Number(value || 1) + 1)}
-              className="grid h-11 w-11 place-items-center rounded-xl bg-slate-100 text-lg font-black text-slate-900"
-            >
-              +
-            </button>
+        {addSalesOpen && (
+          <div className="mt-4 rounded-3xl bg-white p-3 ring-1 ring-slate-200">
+            <div className="grid grid-cols-5 gap-2">
+              {[1, 2, 3, 4, 5].map((amount) => (
+                <button
+                  key={amount}
+                  type="button"
+                  onClick={() => setLogAmount(amount)}
+                  className={`min-h-11 rounded-2xl text-sm font-black ${
+                    Number(logAmount) === amount ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700"
+                  }`}
+                >
+                  {amount}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+              <input
+                aria-label="Custom sales amount"
+                type="number"
+                min="1"
+                value={logAmount}
+                onChange={(event) => setLogAmount(Math.max(1, Number(event.target.value || 1)))}
+                className="min-h-12 rounded-2xl border border-slate-200 bg-white px-4 text-center font-black outline-none focus:border-emerald-400"
+              />
+              <button type="button" onClick={logSale} className="min-h-12 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-card">
+                Log Sales
+              </button>
+            </div>
           </div>
-          <button type="button" onClick={logSale} className="min-h-12 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-card">
-            Log sale
-          </button>
-        </div>
+        )}
         <div className="mt-2 text-xs font-bold text-slate-500">
-          Adds to {selectedBlock?.name || "selected block"} and today&apos;s total. {number(selectedBlockActual)} / {number(selectedBlockTarget, 1)} logged.
+          {addSalesOpen ? "Choose an amount, then log it." : "Pick a block, then tap Add Sales."} {selectedBlock?.name || "Selected block"}: {number(selectedBlockActual)} / {number(selectedBlockTarget, 1)} logged.
         </div>
         <div className="mt-3 grid grid-cols-4 gap-2">
           <button
