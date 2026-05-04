@@ -336,9 +336,7 @@ export default function App() {
 
         <div className="mx-auto max-w-7xl px-4 py-6 xl:px-8">
           {page === "dashboard" && <Dashboard command={command} setPage={setPage} onSaveDay={saveDay} />}
-          {page === "calendar" && (
-            <CalendarPage command={command} onSelectDay={setSelectedDay} />
-          )}
+          {page === "calendar" && <CalendarPage command={command} onSelectDay={setSelectedDay} onSaveDay={saveDay} />}
           {page === "weekly" && (
             <WeeklyPlanner
               command={command}
@@ -1514,9 +1512,11 @@ function TodaySalesCard({ command, onSaveDay }) {
   );
 }
 
-function CalendarPage({ command, onSelectDay }) {
+function CalendarPage({ command, onSelectDay, onSaveDay }) {
   const [anchor, setAnchor] = useState(command.today);
   const [selectedDate, setSelectedDate] = useState(command.today);
+  const [blackoutMode, setBlackoutMode] = useState(false);
+  const [savingBlackouts, setSavingBlackouts] = useState(() => new Set());
   const weekStartDay = Number(command.settings.default_week_start_day ?? 1);
   const normalWorkdays = command.settings.normal_workdays || [1, 2, 3, 4, 5, 6];
   const monthStartDate = monthStart(parseISO(anchor));
@@ -1534,6 +1534,15 @@ function CalendarPage({ command, onSelectDay }) {
     const value = (weekStartDay + index) % 7;
     return weekdayOptions.find((day) => day.value === value)?.label || "";
   });
+  const claimedIncentivesByDate = useMemo(() => {
+    return (command.incentives || []).reduce((dates, incentive) => {
+      if (String(incentive.status || "").toLowerCase() !== "claimed") return dates;
+      const date = incentiveCalendarDate(incentive);
+      if (!date) return dates;
+      dates[date] = (dates[date] || 0) + 1;
+      return dates;
+    }, {});
+  }, [command.incentives]);
 
   function displayDay(date) {
     const existing = daysByDate[date];
@@ -1555,7 +1564,37 @@ function CalendarPage({ command, onSelectDay }) {
 
   function pickDay(date) {
     setSelectedDate(date);
+    if (blackoutMode) {
+      toggleBlackout(date, displayDay(date));
+      return;
+    }
     onSelectDay(date);
+  }
+
+  async function toggleBlackout(date, day) {
+    if (!onSaveDay || savingBlackouts.has(date)) return;
+    const entry = command.entriesByDate[date] || {};
+    const isBlackout = day.dayType === "off" || day.dayType === "vacation" || day.dayType === "non_selling" || day.capacity <= 0 || day.include === false;
+    const makeSelling = isBlackout;
+    setSavingBlackouts((current) => new Set(current).add(date));
+    try {
+      await onSaveDay(date, {
+        sales_count: day.actual ?? entry.sales_count ?? 0,
+        sales_notes: entry.notes || "",
+        day_type: makeSelling ? "normal" : "off",
+        capacity_weight: makeSelling ? 1 : 0,
+        planned_target: day.plannedTarget || 0,
+        custom_target: day.customTarget ?? "",
+        include_in_calculations: makeSelling,
+        day_notes: day.notes || (makeSelling ? "" : "Blackout date."),
+      });
+    } finally {
+      setSavingBlackouts((current) => {
+        const next = new Set(current);
+        next.delete(date);
+        return next;
+      });
+    }
   }
 
   function weekGoalFor(week) {
@@ -1595,6 +1634,20 @@ function CalendarPage({ command, onSelectDay }) {
         >
           Jump to today
         </button>
+        <button
+          type="button"
+          onClick={() => setBlackoutMode((value) => !value)}
+          className={`mt-2 w-full rounded-2xl px-4 py-2 text-sm font-black transition active:scale-[0.99] ${
+            blackoutMode ? "bg-slate-950 text-white hover:bg-slate-800" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+          }`}
+        >
+          {blackoutMode ? "Done" : "Blackout Dates"}
+        </button>
+        {blackoutMode && (
+          <div className="mt-2 rounded-2xl bg-slate-900 px-3 py-2 text-center text-xs font-bold text-white">
+            Tap dates to mark vacation or non-selling days.
+          </div>
+        )}
       </section>
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-card">
@@ -1610,20 +1663,23 @@ function CalendarPage({ command, onSelectDay }) {
             const weekTotal = week.reduce((sum, date) => sum + Number(displayDay(date).actual || 0), 0);
             const weekGoal = weekGoalFor(week);
             const weekProgress = weekGoal > 0 ? weekTotal / weekGoal : 0;
+            const weekPercent = weekGoal > 0 ? Math.round(weekProgress * 100) : null;
+            const achievement = weeklyAchievement(weekProgress, weekGoal);
             return (
               <div key={week[0]} className="border-b border-slate-100 last:border-0">
                 <div className="flex items-center justify-between gap-2 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-500">
                   <span>
                     Week: <span className="text-emerald-700">+{number(weekTotal)}</span>
                     {weekGoal > 0 && <span className="text-slate-400"> / {number(weekGoal)}</span>}
+                    {weekPercent !== null && <span className="text-slate-400"> · {weekPercent}%</span>}
                   </span>
-                  {weekGoal > 0 && weekProgress >= 1 && (
-                    <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[11px] text-yellow-800" aria-label="Weekly goal met">
-                      🥇
-                    </span>
-                  )}
-                  {weekGoal > 0 && weekProgress >= 0.75 && weekProgress < 1 && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] text-slate-700">75%</span>}
+                  {achievement && <span className={`rounded-full px-2 py-0.5 text-[11px] ${achievement.className}`}>{achievement.label}</span>}
                 </div>
+                {weekGoal > 0 && weekTotal >= weekGoal && (
+                  <div className="border-t border-yellow-100 bg-yellow-50 px-3 py-1 text-[11px] font-black text-yellow-800">
+                    🥇 Goals Met
+                  </div>
+                )}
                 <div className="grid grid-cols-7">
                   {week.map((date) => {
                     const day = displayDay(date);
@@ -1637,34 +1693,61 @@ function CalendarPage({ command, onSelectDay }) {
                     const nonSelling = outsideMonth || nonCountingCurrentMonth;
                     const metGoal = !nonSelling && actual > 0 && target > 0 && actual >= target;
                     const strongDay = actual >= 4;
+                    const claimedIncentives = claimedIncentivesByDate[date] || 0;
+                    const savingBlackout = savingBlackouts.has(date);
                     return (
                       <button
                         key={date}
                         type="button"
                         onClick={() => pickDay(date)}
                         className={`min-h-[4.4rem] border-r border-slate-100 p-2 text-left transition last:border-r-0 hover:bg-indigo-50/60 active:scale-[0.98] ${
-                          outsideMonth ? "bg-slate-200/70 text-slate-400" : nonCountingCurrentMonth ? "bg-slate-100/80 text-slate-500" : "bg-white"
-                        } ${metGoal ? "ring-2 ring-inset ring-emerald-300" : ""} ${day.isToday ? "outline outline-2 outline-inset outline-indigo-400" : ""} ${selected ? "bg-indigo-50" : ""}`}
-                        aria-label={`Edit ${formatDate(date)}`}
+                          metGoal
+                            ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
+                            : nonCountingCurrentMonth
+                              ? "bg-slate-700 text-slate-100 hover:bg-slate-600"
+                              : outsideMonth
+                                ? "bg-slate-200/70 text-slate-400 hover:bg-slate-200"
+                                : "bg-white"
+                        } ${day.isToday ? "outline outline-2 outline-inset outline-indigo-400" : ""} ${selected ? "ring-2 ring-inset ring-indigo-500" : ""} ${savingBlackout ? "opacity-70" : ""}`}
+                        aria-label={`${blackoutMode ? "Toggle blackout for" : "Edit"} ${formatDate(date)}`}
                       >
                         <div className="flex items-start justify-between gap-1">
                           <span
                             className={`text-sm font-black ${
-                              day.isToday ? "text-indigo-700" : outsideMonth ? "text-slate-400" : nonCountingCurrentMonth ? "text-slate-500" : "text-slate-800"
+                              metGoal
+                                ? "text-white"
+                                : day.isToday
+                                  ? "text-indigo-700"
+                                  : outsideMonth
+                                    ? "text-slate-400"
+                                    : nonCountingCurrentMonth
+                                      ? "text-slate-100"
+                                      : "text-slate-800"
                             }`}
                           >
                             {parseISO(date).getDate()}
                           </span>
-                          {nonCountingCurrentMonth && (
-                            <span className="text-[10px] font-black leading-none text-slate-400" aria-label="Non-selling day">
-                              x
-                            </span>
-                          )}
+                          <span className="flex items-center gap-1">
+                            {claimedIncentives > 0 && (
+                              <span className="text-[10px] leading-none" aria-label={`${claimedIncentives} claimed incentive${claimedIncentives === 1 ? "" : "s"}`}>
+                                🎁
+                              </span>
+                            )}
+                            {nonCountingCurrentMonth && (
+                              <span className="text-[10px] font-black leading-none text-slate-300" aria-label="Non-selling day">
+                                x
+                              </span>
+                            )}
+                          </span>
                         </div>
                         {actual > 0 && (
                           <div
                             className={`mt-2 inline-flex rounded-full px-2 py-0.5 font-black ${
-                              nonSelling
+                              metGoal
+                                ? strongDay
+                                  ? "bg-white/25 text-sm text-white shadow-sm"
+                                  : "bg-white/20 text-xs text-white"
+                                : nonSelling
                                 ? strongDay
                                   ? "bg-slate-200 text-sm text-slate-700"
                                   : "bg-slate-200 text-xs text-slate-600"
@@ -1687,6 +1770,21 @@ function CalendarPage({ command, onSelectDay }) {
       </section>
     </div>
   );
+}
+
+function weeklyAchievement(progress, goal) {
+  if (!goal || goal <= 0) return null;
+  if (progress > 1) return { label: "Diamond", className: "bg-blue-100 text-blue-700" };
+  if (progress >= 1) return { label: "🥇", className: "bg-yellow-100 text-yellow-800" };
+  if (progress >= 0.75) return { label: "Silver", className: "bg-slate-200 text-slate-700" };
+  if (progress < 0.6) return { label: "Bronze", className: "bg-stone-200 text-stone-700" };
+  return null;
+}
+
+function incentiveCalendarDate(incentive) {
+  return [incentive.claimed_at, incentive.target_date, incentive.updated_at]
+    .map((value) => String(value || "").slice(0, 10))
+    .find((value) => /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
 
 function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay, saveWeeklyConfirmation }) {
