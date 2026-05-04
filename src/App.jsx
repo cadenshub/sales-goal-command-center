@@ -1518,6 +1518,7 @@ function CalendarPage({ command, onSelectDay }) {
   const [anchor, setAnchor] = useState(command.today);
   const [selectedDate, setSelectedDate] = useState(command.today);
   const weekStartDay = Number(command.settings.default_week_start_day ?? 1);
+  const normalWorkdays = command.settings.normal_workdays || [1, 2, 3, 4, 5, 6];
   const monthStartDate = monthStart(parseISO(anchor));
   const monthEndDate = monthEnd(parseISO(anchor));
   const gridStart = toISO(weekStart(monthStartDate, weekStartDay));
@@ -1537,13 +1538,15 @@ function CalendarPage({ command, onSelectDay }) {
   function displayDay(date) {
     const existing = daysByDate[date];
     if (existing) return existing;
+    const parsed = parseISO(date);
+    const isNormalWorkday = parsed ? normalWorkdays.includes(parsed.getDay()) : true;
     return {
       date,
       actual: 0,
-      dayType: "normal",
-      capacity: 1,
+      dayType: isNormalWorkday ? "normal" : "off",
+      capacity: isNormalWorkday ? 1 : 0,
       notes: "",
-      include: true,
+      include: isNormalWorkday,
       isToday: date === command.today,
       isPast: date < command.today,
       isFuture: date > command.today,
@@ -1614,7 +1617,11 @@ function CalendarPage({ command, onSelectDay }) {
                     Week: <span className="text-emerald-700">+{number(weekTotal)}</span>
                     {weekGoal > 0 && <span className="text-slate-400"> / {number(weekGoal)}</span>}
                   </span>
-                  {weekGoal > 0 && weekProgress >= 1 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-800">Goal met</span>}
+                  {weekGoal > 0 && weekProgress >= 1 && (
+                    <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[11px] text-yellow-800" aria-label="Weekly goal met">
+                      🥇
+                    </span>
+                  )}
                   {weekGoal > 0 && weekProgress >= 0.75 && weekProgress < 1 && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] text-slate-700">75%</span>}
                 </div>
                 <div className="grid grid-cols-7">
@@ -1624,35 +1631,48 @@ function CalendarPage({ command, onSelectDay }) {
                     const selected = date === selectedDate;
                     const actual = Number(day.actual || 0);
                     const target = Number(day.plannedTarget || 0);
-                    const metGoal = actual > 0 && target > 0 && actual === target;
-                    const overGoal = actual > 0 && target > 0 && actual > target;
+                    const outsideActiveRange = date < command.plan.start_date || date > command.plan.end_date;
+                    const nonCountingCurrentMonth = inMonth && (outsideActiveRange || day.dayType === "off" || day.capacity <= 0 || day.include === false);
+                    const outsideMonth = !inMonth;
+                    const nonSelling = outsideMonth || nonCountingCurrentMonth;
+                    const metGoal = !nonSelling && actual > 0 && target > 0 && actual >= target;
                     const strongDay = actual >= 4;
-                    const fireDay = actual >= 5 || overGoal;
-                    const nonSelling = !inMonth || date < command.plan.start_date || date > command.plan.end_date || day.dayType === "off" || day.capacity <= 0 || day.include === false;
                     return (
                       <button
                         key={date}
                         type="button"
                         onClick={() => pickDay(date)}
                         className={`min-h-[4.4rem] border-r border-slate-100 p-2 text-left transition last:border-r-0 hover:bg-indigo-50/60 active:scale-[0.98] ${
-                          nonSelling ? "bg-slate-100/80 text-slate-400" : "bg-white"
-                        } ${metGoal ? "ring-2 ring-inset ring-emerald-300" : ""} ${overGoal ? "ring-2 ring-inset ring-orange-300" : ""} ${day.isToday ? "outline outline-2 outline-inset outline-indigo-400" : ""} ${selected ? "bg-indigo-50" : ""}`}
+                          outsideMonth ? "bg-slate-200/70 text-slate-400" : nonCountingCurrentMonth ? "bg-slate-100/80 text-slate-500" : "bg-white"
+                        } ${metGoal ? "ring-2 ring-inset ring-emerald-300" : ""} ${day.isToday ? "outline outline-2 outline-inset outline-indigo-400" : ""} ${selected ? "bg-indigo-50" : ""}`}
                         aria-label={`Edit ${formatDate(date)}`}
                       >
                         <div className="flex items-start justify-between gap-1">
-                          <span className={`text-sm font-black ${day.isToday ? "text-indigo-700" : nonSelling ? "text-slate-400" : "text-slate-800"}`}>
+                          <span
+                            className={`text-sm font-black ${
+                              day.isToday ? "text-indigo-700" : outsideMonth ? "text-slate-400" : nonCountingCurrentMonth ? "text-slate-500" : "text-slate-800"
+                            }`}
+                          >
                             {parseISO(date).getDate()}
                           </span>
-                          {nonSelling && <span className="h-1.5 w-1.5 rounded-full bg-slate-400" aria-label="Non-selling day" />}
+                          {nonCountingCurrentMonth && (
+                            <span className="text-[10px] font-black leading-none text-slate-400" aria-label="Non-selling day">
+                              x
+                            </span>
+                          )}
                         </div>
                         {actual > 0 && (
-                          <div className={`mt-2 inline-flex rounded-full px-2 py-0.5 font-black ${
-                            fireDay
-                              ? "bg-orange-50 text-orange-700"
-                              : metGoal
-                                ? "bg-emerald-50 text-emerald-700"
-                                : "bg-slate-50 text-slate-600"
-                          } ${strongDay ? "text-sm" : "text-xs"}`}>
+                          <div
+                            className={`mt-2 inline-flex rounded-full px-2 py-0.5 font-black ${
+                              nonSelling
+                                ? strongDay
+                                  ? "bg-slate-200 text-sm text-slate-700"
+                                  : "bg-slate-200 text-xs text-slate-600"
+                                : strongDay
+                                  ? "bg-emerald-100 text-sm text-emerald-900 shadow-sm"
+                                  : "bg-emerald-50 text-xs text-emerald-700"
+                            }`}
+                          >
                             +{number(actual)}
                           </div>
                         )}
