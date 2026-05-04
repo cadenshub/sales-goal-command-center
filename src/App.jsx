@@ -758,36 +758,51 @@ function SetupWizard({ user, onCreated, setError, error }) {
     weeks: [],
     goalPeriods: [],
     calendarDays: [],
-    incentives: [
-      { title: "Dinner reward", description: "25 sales milestone", incentive_type: "sales_milestone", target_value: 25, reward_value: 100, status: "locked" },
-      { title: "Season prize", description: "Hit the full season goal", incentive_type: "season_goal", target_value: 100, reward_value: 500, status: "locked" },
-    ],
+    incentives: [],
   });
   const [busy, setBusy] = useState(false);
-  const steps = ["Plan", "Weeks", "Schedule", "Catch-up", "Rewards"];
+  const [formErrors, setFormErrors] = useState([]);
+  const steps = [
+    { label: "Plan", description: "Name the season and set the date range." },
+    { label: "Goals", description: "Set your sales targets and realistic pace." },
+    { label: "Schedule", description: "Choose the days that count toward the plan." },
+    { label: "Rewards", description: "Add optional incentives for milestones." },
+    { label: "Review", description: "Check everything before creating the plan." },
+  ];
 
   function updatePlanField(key, value) {
     setDraft((current) => ({ ...current, plan: { ...current.plan, [key]: value } }));
+    setFormErrors([]);
   }
 
   function updateSettingsField(key, value) {
     setDraft((current) => ({ ...current, settings: { ...current.settings, [key]: value } }));
+    setFormErrors([]);
+  }
+
+  function nextStep() {
+    const errors = validateSetupStep(draft, step);
+    if (errors.length) {
+      setFormErrors(errors);
+      return;
+    }
+    setFormErrors([]);
+    setStep((current) => Math.min(steps.length - 1, current + 1));
   }
 
   async function finish() {
+    if (busy) return;
+    const result = normalizeSetupDraft(draft);
+    if (result.errors.length) {
+      setFormErrors(result.errors);
+      setStep(result.step);
+      return;
+    }
     setBusy(true);
     setError("");
+    setFormErrors([]);
     try {
-      const workspace = await createWorkspace(user.id, {
-        ...draft,
-        plan: {
-          ...draft.plan,
-          total_goal: Number(draft.plan.total_goal || 0),
-          starting_sales: Number(draft.plan.starting_sales || 0),
-          default_weekly_goal: Number(draft.plan.default_weekly_goal || 0),
-          max_sales_per_day: Number(draft.plan.max_sales_per_day || 0),
-        },
-      });
+      const workspace = await createWorkspace(user.id, result.payload);
       onCreated(workspace);
     } catch (err) {
       setError(err.message);
@@ -797,106 +812,90 @@ function SetupWizard({ user, onCreated, setError, error }) {
   }
 
   return (
-    <div className="mx-auto min-h-screen max-w-6xl px-4 py-8">
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto min-h-screen max-w-5xl px-4 py-6 md:py-8">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-sm font-black uppercase tracking-wide text-indigo-600">First-time setup</div>
-          <h1 className="text-4xl font-black">Build your command center</h1>
+          <h1 className="text-3xl font-black tracking-tight text-slate-950 dark:text-slate-50 md:text-4xl">Build your command center</h1>
+          <p className="mt-2 max-w-2xl text-sm font-bold text-slate-500">{steps[step].description}</p>
         </div>
-        <div className="flex gap-2">
-          {steps.map((label, index) => (
+      </div>
+
+      <div className="mb-5 overflow-x-auto pb-1">
+        <div className="flex min-w-max gap-2">
+          {steps.map((item, index) => (
             <button
-              key={label}
+              key={item.label}
               type="button"
               onClick={() => setStep(index)}
-              className={`h-3 w-10 rounded-full ${index <= step ? "bg-indigo-600" : "bg-slate-200"}`}
-              aria-label={label}
-            />
+              className={`rounded-2xl px-3 py-2 text-xs font-black transition ${
+                index === step
+                  ? "bg-slate-950 text-white shadow-card"
+                  : index < step
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              {index < step ? "Done" : index + 1}. {item.label}
+            </button>
           ))}
         </div>
       </div>
+
       {error && <div className="mb-5 rounded-2xl bg-red-50 p-4 font-bold text-red-700">{error}</div>}
-      <div className="glass-card rounded-[2rem] p-5 md:p-8">
+      {formErrors.length > 0 && (
+        <div className="mb-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">
+          {formErrors.map((item) => (
+            <div key={item}>{item}</div>
+          ))}
+        </div>
+      )}
+
+      <div className="glass-card rounded-[2rem] p-5 md:p-7">
         {step === 0 && (
-          <Section title="Basic plan info" icon={Target}>
-            <div className="grid gap-4 md:grid-cols-3">
+          <SetupStep title="Plan" icon={Target}>
+            <div className="grid gap-4 md:grid-cols-2">
               <Field label="Plan name" value={draft.plan.name} onChange={(v) => updatePlanField("name", v)} />
               <Field label="Season start" type="date" value={draft.plan.start_date} onChange={(v) => updatePlanField("start_date", v)} />
               <Field label="Season end" type="date" value={draft.plan.end_date} onChange={(v) => updatePlanField("end_date", v)} />
               <Field label="Tracking start" type="date" value={draft.plan.tracking_start_date} onChange={(v) => updatePlanField("tracking_start_date", v)} />
-              <Field label="Season sales goal" type="number" value={draft.plan.total_goal} onChange={(v) => updatePlanField("total_goal", v)} />
-              <Field label="Starting sales count" type="number" value={draft.plan.starting_sales} onChange={(v) => updatePlanField("starting_sales", v)} />
             </div>
             <Toggle
               label="Count sales outside the active date range"
               checked={draft.plan.include_outside_range_sales}
               onChange={(v) => updatePlanField("include_outside_range_sales", v)}
             />
-          </Section>
+          </SetupStep>
         )}
         {step === 1 && (
-          <Section title="Weekly goals and custom ranges" icon={BarChart3}>
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Default weekly goal" type="number" value={draft.plan.default_weekly_goal} onChange={(v) => updatePlanField("default_weekly_goal", v)} />
-              <button
-                type="button"
-                onClick={() => {
-                  const weeks = autoBuildWeeks(draft.plan);
-                  setDraft((current) => ({ ...current, weeks }));
-                }}
-                className="self-end rounded-2xl bg-indigo-600 px-4 py-3 font-black text-white"
-              >
-                Auto-calculate weeks
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setDraft((current) => ({
-                    ...current,
-                    weeks: [
-                      ...current.weeks,
-                      {
-                        week_start: current.plan.start_date,
-                        week_end: toISO(addDays(parseISO(current.plan.start_date), 6)),
-                        weekly_goal: current.plan.default_weekly_goal,
-                        custom_goal_enabled: true,
-                        custom_range_enabled: true,
-                        range_label: "Custom push week",
-                        notes: "",
-                      },
-                    ],
-                  }))
-                }
-                className="self-end rounded-2xl border border-slate-200 px-4 py-3 font-black"
-              >
-                Add custom week
-              </button>
+          <SetupStep title="Goals" icon={BarChart3}>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Season goal" type="number" value={draft.plan.total_goal} onChange={(v) => updatePlanField("total_goal", v)} />
+              <Field label="Weekly goal" type="number" value={draft.plan.default_weekly_goal} onChange={(v) => updatePlanField("default_weekly_goal", v)} />
+              <Field label="Starting sales" type="number" value={draft.plan.starting_sales} onChange={(v) => updatePlanField("starting_sales", v)} />
+              <Field label="Max sales per day" type="number" value={draft.plan.max_sales_per_day} onChange={(v) => updatePlanField("max_sales_per_day", v)} />
             </div>
-            <EditableList
-              items={draft.weeks}
-              empty="No weekly overrides yet."
-              render={(week, index) => (
-                <WeekMiniEditor
-                  week={week}
-                  onChange={(next) =>
-                    setDraft((current) => ({
-                      ...current,
-                      weeks: current.weeks.map((item, i) => (i === index ? next : item)),
-                    }))
-                  }
-                  onDelete={() => setDraft((current) => ({ ...current, weeks: current.weeks.filter((_, i) => i !== index) }))}
-                />
-              )}
+            <Field
+              label="Catch-up style"
+              type="select"
+              value={draft.plan.catchup_strategy}
+              onChange={(v) => updatePlanField("catchup_strategy", v)}
+              options={[
+                { value: "balanced", label: "Spread evenly" },
+                { value: "front_loaded", label: "Prioritize sooner days" },
+                { value: "weekly_first", label: "Weekly goal matters most" },
+                { value: "season_first", label: "Season goal matters most" },
+              ]}
             />
-          </Section>
+          </SetupStep>
         )}
         {step === 2 && (
-          <Section title="Work schedule and capacity" icon={Calendar}>
+          <SetupStep title="Schedule" icon={Calendar}>
             <WeekdayPicker
               value={draft.settings.normal_workdays}
               onChange={(normal_workdays) => updateSettingsField("normal_workdays", normal_workdays)}
             />
-            <div className="mt-6 grid gap-4 md:grid-cols-3">
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
               <Field label="Week starts on" type="select" value={draft.settings.default_week_start_day} onChange={(v) => updateSettingsField("default_week_start_day", Number(v))} options={weekdayOptions} />
               <button
                 type="button"
@@ -919,7 +918,7 @@ function SetupWizard({ user, onCreated, setError, error }) {
                 }
                 className="self-end rounded-2xl border border-slate-200 px-4 py-3 font-black"
               >
-                Add schedule override
+                Add planned day off
               </button>
             </div>
             <EditableList
@@ -938,69 +937,10 @@ function SetupWizard({ user, onCreated, setError, error }) {
                 />
               )}
             />
-          </Section>
+          </SetupStep>
         )}
         {step === 3 && (
-          <Section title="Catch-up preferences and sprints" icon={TrendingUp}>
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Max realistic sales/day" type="number" value={draft.plan.max_sales_per_day} onChange={(v) => updatePlanField("max_sales_per_day", v)} />
-              <Field
-                label="Catch-up strategy"
-                type="select"
-                value={draft.plan.catchup_strategy}
-                onChange={(v) => updatePlanField("catchup_strategy", v)}
-                options={[
-                  { value: "balanced", label: "Spread evenly" },
-                  { value: "front_loaded", label: "Prioritize sooner days" },
-                  { value: "weekly_first", label: "Weekly goal matters most" },
-                  { value: "season_first", label: "Season goal matters most" },
-                ]}
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  setDraft((current) => ({
-                    ...current,
-                    goalPeriods: [
-                      ...current.goalPeriods,
-                      {
-                        title: "Two-week sprint",
-                        period_type: "sprint",
-                        start_date: todayISO(),
-                        end_date: toISO(addDays(new Date(), 13)),
-                        target_sales: 20,
-                        priority: "high",
-                        active: true,
-                        notes: "",
-                      },
-                    ],
-                  }))
-                }
-                className="self-end rounded-2xl border border-slate-200 px-4 py-3 font-black"
-              >
-                Add sprint goal
-              </button>
-            </div>
-            <EditableList
-              items={draft.goalPeriods}
-              empty="No sprint or custom goal periods yet."
-              render={(period, index) => (
-                <GoalPeriodMiniEditor
-                  period={period}
-                  onChange={(next) =>
-                    setDraft((current) => ({
-                      ...current,
-                      goalPeriods: current.goalPeriods.map((item, i) => (i === index ? next : item)),
-                    }))
-                  }
-                  onDelete={() => setDraft((current) => ({ ...current, goalPeriods: current.goalPeriods.filter((_, i) => i !== index) }))}
-                />
-              )}
-            />
-          </Section>
-        )}
-        {step === 4 && (
-          <Section title="Incentives and rewards" icon={Gift}>
+          <SetupStep title="Rewards" icon={Gift}>
             <button
               type="button"
               onClick={() =>
@@ -1009,10 +949,11 @@ function SetupWizard({ user, onCreated, setError, error }) {
                   incentives: [
                     ...current.incentives,
                     {
-                      title: "New reward",
+                      title: "",
                       description: "",
                       incentive_type: "sales_milestone",
-                      target_value: 25,
+                      target_value: "",
+                      target_date: "",
                       reward_value: "",
                       status: "locked",
                     },
@@ -1025,9 +966,9 @@ function SetupWizard({ user, onCreated, setError, error }) {
             </button>
             <EditableList
               items={draft.incentives}
-              empty="Add milestone rewards to make the plan feel alive."
+              empty="Rewards are optional. Add one if it helps make the goal more fun."
               render={(incentive, index) => (
-                <IncentiveMiniEditor
+                <SetupRewardEditor
                   incentive={incentive}
                   onChange={(next) =>
                     setDraft((current) => ({
@@ -1039,29 +980,204 @@ function SetupWizard({ user, onCreated, setError, error }) {
                 />
               )}
             />
-          </Section>
+          </SetupStep>
+        )}
+        {step === 4 && (
+          <SetupStep title="Review" icon={CheckCircle2}>
+            <div className="grid gap-3 md:grid-cols-2">
+              <ReviewItem label="Plan" value={draft.plan.name || "Missing name"} />
+              <ReviewItem label="Season" value={`${draft.plan.start_date || "Start"} to ${draft.plan.end_date || "End"}`} />
+              <ReviewItem label="Season goal" value={`${draft.plan.total_goal || 0} sales`} />
+              <ReviewItem label="Weekly goal" value={`${draft.plan.default_weekly_goal || 0} sales`} />
+              <ReviewItem label="Workdays" value={`${draft.settings.normal_workdays.length} days selected`} />
+              <ReviewItem label="Rewards" value={`${draft.incentives.filter((item) => String(item.title || "").trim()).length} added`} />
+            </div>
+          </SetupStep>
         )}
       </div>
-      <div className="mt-6 flex justify-between">
+      <div className="sticky bottom-0 mt-6 flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/90 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
         <button
           type="button"
           onClick={() => setStep(Math.max(0, step - 1))}
-          className="rounded-2xl border border-slate-200 px-5 py-3 font-black"
+          disabled={step === 0 || busy}
+          className="rounded-2xl border border-slate-200 px-5 py-3 font-black disabled:cursor-not-allowed disabled:opacity-40"
         >
           Back
         </button>
         {step < steps.length - 1 ? (
-          <button type="button" onClick={() => setStep(step + 1)} className="rounded-2xl bg-slate-950 px-5 py-3 font-black text-white">
-            Continue
+          <button type="button" onClick={nextStep} className="rounded-2xl bg-slate-950 px-5 py-3 font-black text-white">
+            Next
           </button>
         ) : (
           <button type="button" onClick={finish} className="rounded-2xl bg-emerald-600 px-5 py-3 font-black text-white" disabled={busy}>
-            {busy ? "Saving..." : "Launch dashboard"}
+            {busy ? "Creating plan..." : "Finish Setup"}
           </button>
         )}
       </div>
     </div>
   );
+}
+
+function SetupStep({ title, icon: Icon, children }) {
+  return (
+    <section>
+      <div className="mb-5 flex items-center gap-3">
+        <div className="grid h-11 w-11 place-items-center rounded-2xl bg-slate-950 text-white">
+          <Icon size={20} />
+        </div>
+        <h2 className="text-2xl font-black text-slate-950 dark:text-slate-50">{title}</h2>
+      </div>
+      <div className="grid gap-5">{children}</div>
+    </section>
+  );
+}
+
+function ReviewItem({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950">
+      <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="mt-1 font-black text-slate-950 dark:text-slate-50">{value}</div>
+    </div>
+  );
+}
+
+function SetupRewardEditor({ incentive, onChange, onDelete }) {
+  const [more, setMore] = useState(Boolean(incentive.description || incentive.reward_value || incentive.target_date));
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Field label="Reward name" value={incentive.title} onChange={(v) => onChange({ ...incentive, title: v })} />
+        <Field label="Reward goal" type="number" value={incentive.target_value} onChange={(v) => onChange({ ...incentive, target_value: v })} />
+        <Field
+          label="Reward type"
+          type="select"
+          value={incentive.incentive_type}
+          onChange={(v) => onChange({ ...incentive, incentive_type: v })}
+          options={[
+            { value: "sales_milestone", label: "Sales milestone" },
+            { value: "weekly_goal", label: "Weekly goal" },
+            { value: "streak", label: "Streak" },
+            { value: "season_goal", label: "Season goal" },
+            { value: "custom", label: "Custom" },
+          ]}
+        />
+      </div>
+      <button type="button" onClick={() => setMore((value) => !value)} className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700">
+        {more ? "Hide more options" : "More options"}
+      </button>
+      {more && (
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <Field label="Reward value" type="number" value={incentive.reward_value ?? ""} onChange={(v) => onChange({ ...incentive, reward_value: v })} />
+          <Field label="Target date" type="date" value={incentive.target_date || ""} onChange={(v) => onChange({ ...incentive, target_date: v })} />
+          <Field label="Description" value={incentive.description || ""} onChange={(v) => onChange({ ...incentive, description: v })} />
+        </div>
+      )}
+      <button type="button" onClick={onDelete} className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-700">
+        Remove reward
+      </button>
+    </div>
+  );
+}
+
+function validateSetupStep(draft, step) {
+  const errors = [];
+  if (step === 0) {
+    if (!String(draft.plan.name || "").trim()) errors.push("Plan name is required.");
+    if (!draft.plan.start_date || !draft.plan.end_date) errors.push("Season start and end dates are required.");
+    if (draft.plan.start_date && draft.plan.end_date && draft.plan.end_date < draft.plan.start_date) errors.push("Season end date must be after the start date.");
+  }
+  if (step === 1) {
+    requirePositiveNumber(errors, draft.plan.total_goal, "Season goal");
+    requirePositiveNumber(errors, draft.plan.default_weekly_goal, "Weekly goal");
+    requirePositiveNumber(errors, draft.plan.max_sales_per_day, "Max sales per day");
+    optionalNonNegativeNumber(errors, draft.plan.starting_sales, "Starting sales");
+  }
+  if (step === 2 && !draft.settings.normal_workdays.length) errors.push("Choose at least one normal workday.");
+  if (step === 3) normalizeSetupRewards(draft.incentives).errors.forEach((item) => errors.push(item));
+  return errors;
+}
+
+function normalizeSetupDraft(draft) {
+  const stepErrors = [0, 1, 2, 3].map((index) => validateSetupStep(draft, index));
+  const errors = stepErrors.flat();
+  if (errors.length) {
+    const step = stepErrors.findIndex((items) => items.length);
+    return { errors, step, payload: null };
+  }
+  const plan = {
+    ...draft.plan,
+    name: String(draft.plan.name || "").trim(),
+    tracking_start_date: draft.plan.tracking_start_date || draft.plan.start_date,
+    total_goal: requiredNumber(draft.plan.total_goal),
+    starting_sales: optionalNumber(draft.plan.starting_sales) ?? 0,
+    default_weekly_goal: requiredNumber(draft.plan.default_weekly_goal),
+    max_sales_per_day: requiredNumber(draft.plan.max_sales_per_day),
+  };
+  const incentives = normalizeSetupRewards(draft.incentives).rewards;
+  return {
+    errors: [],
+    step: 4,
+    payload: {
+      ...draft,
+      plan,
+      weeks: [],
+      goalPeriods: [],
+      incentives,
+      calendarDays: draft.calendarDays.map((day) => ({
+        ...day,
+        capacity_weight: optionalNumber(day.capacity_weight) ?? 0,
+        planned_target: optionalNumber(day.planned_target) ?? 0,
+        custom_target: optionalNumber(day.custom_target),
+        notes: String(day.notes || "").trim(),
+      })),
+    },
+  };
+}
+
+function normalizeSetupRewards(incentives) {
+  const errors = [];
+  const rewards = [];
+  incentives.forEach((item, index) => {
+    const title = String(item.title || "").trim();
+    const targetBlank = isBlank(item.target_value);
+    const hasAnyValue = title || !targetBlank || String(item.description || "").trim() || !isBlank(item.reward_value) || item.target_date;
+    if (!hasAnyValue) return;
+    if (!title) errors.push(`Reward ${index + 1}: reward name is required.`);
+    if (targetBlank) errors.push(`Reward ${index + 1}: reward goal is required.`);
+    if (!targetBlank) optionalNonNegativeNumber(errors, item.target_value, `Reward ${index + 1} goal`);
+    if (!isBlank(item.reward_value)) optionalNonNegativeNumber(errors, item.reward_value, `Reward ${index + 1} value`);
+    rewards.push({
+      title,
+      description: String(item.description || "").trim(),
+      incentive_type: item.incentive_type || "sales_milestone",
+      target_value: requiredNumber(item.target_value),
+      target_date: item.target_date || null,
+      related_goal_period_id: item.related_goal_period_id || null,
+      reward_value: optionalNumber(item.reward_value),
+      status: item.status || "locked",
+    });
+  });
+  return { errors, rewards };
+}
+
+function isBlank(value) {
+  return value === "" || value === null || value === undefined;
+}
+
+function requiredNumber(value) {
+  return Number(value);
+}
+
+function optionalNumber(value) {
+  return isBlank(value) ? null : Number(value);
+}
+
+function requirePositiveNumber(errors, value, label) {
+  if (isBlank(value) || !Number.isFinite(Number(value)) || Number(value) <= 0) errors.push(`${label} must be greater than 0.`);
+}
+
+function optionalNonNegativeNumber(errors, value, label) {
+  if (!isBlank(value) && (!Number.isFinite(Number(value)) || Number(value) < 0)) errors.push(`${label} must be 0 or higher.`);
 }
 
 function Dashboard({ command, setPage, onSaveDay }) {
@@ -2895,25 +3011,6 @@ function normalizePlanDraft(draft) {
     catchup_strategy: draft.catchup_strategy,
     include_outside_range_sales: draft.include_outside_range_sales,
   };
-}
-
-function autoBuildWeeks(plan) {
-  const weeks = [];
-  let cursor = weekStart(parseISO(plan.start_date), 1);
-  const seasonEnd = parseISO(plan.end_date);
-  while (cursor <= seasonEnd) {
-    weeks.push({
-      week_start: toISO(cursor),
-      week_end: toISO(weekEnd(cursor, 1)),
-      weekly_goal: Number(plan.default_weekly_goal || 0),
-      custom_goal_enabled: false,
-      custom_range_enabled: false,
-      range_label: `Week ${weeks.length + 1}`,
-      notes: "",
-    });
-    cursor = addDays(cursor, 7);
-  }
-  return weeks;
 }
 
 function newWeek(command) {
