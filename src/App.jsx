@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -98,6 +98,7 @@ export default function App() {
   const [selectedDay, setSelectedDay] = useState(null);
   const [saveState, setSaveState] = useState("Saved");
   const [clockTick, setClockTick] = useState(0);
+  const loadedUserIdRef = useRef(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -116,13 +117,16 @@ export default function App() {
         setError(err.message);
         setLoading(false);
       });
-    const { data } = onAuthChange(async (nextSession) => {
+    const { data } = onAuthChange(async (nextSession, event) => {
       setSession(nextSession);
-      if (nextSession?.user) await bootstrapWorkspace(nextSession.user);
-      else {
+      if (!nextSession?.user) {
         setWorkspace(null);
+        loadedUserIdRef.current = null;
         setLoading(false);
+        return;
       }
+      if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") return;
+      if (loadedUserIdRef.current !== nextSession.user.id) await bootstrapWorkspace(nextSession.user);
     });
     return () => {
       mounted = false;
@@ -141,6 +145,7 @@ export default function App() {
     try {
       await ensureProfile(user);
       setWorkspace(await loadWorkspace(user.id));
+      loadedUserIdRef.current = user.id;
     } catch (err) {
       setError(err.message);
     } finally {
@@ -153,8 +158,12 @@ export default function App() {
     return buildCommandCenter(workspace);
   }, [workspace, clockTick]);
 
-  async function saveAndPatch(patcher, saveAction) {
-    setWorkspace((current) => patcher(current));
+  async function saveAndPatch(patcher, saveAction, options = {}) {
+    let previousWorkspace = null;
+    setWorkspace((current) => {
+      previousWorkspace = current;
+      return patcher(current);
+    });
     setSaveState("Saving...");
     try {
       await saveAction();
@@ -162,7 +171,8 @@ export default function App() {
     } catch (err) {
       setError(err.message);
       setSaveState("Save failed");
-      if (session?.user) bootstrapWorkspace(session.user);
+      if (options.rollbackOnError !== false && previousWorkspace) setWorkspace(previousWorkspace);
+      if (options.refetchOnError && session?.user) bootstrapWorkspace(session.user);
     }
   }
 
@@ -1050,8 +1060,19 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [showAllBlocks, setShowAllBlocks] = useState(false);
   const [logAmount, setLogAmount] = useState(1);
   const [selectedBlockKey, setSelectedBlockKey] = useState("");
+  const lastTodaySyncKeyRef = useRef("");
   const visibleBlocks = blockDrafts.filter((block) => block.active && !block.is_break);
   const currentBlock = visibleBlocks.find((block) => block.isCurrent) || today?.timeBlocks.currentBlock;
+  const todaySyncKey = today
+    ? [
+        today.date,
+        today.actual,
+        today.notes || "",
+        ...(today.timeBlocks?.blocks || []).map((block) =>
+          `${block.key}:${block.actual}:${block.target}:${block.status}:${block.isCurrent ? "current" : ""}`,
+        ),
+      ].join("|")
+    : "";
 
   useEffect(() => {
     setEditOpen(false);
@@ -1059,13 +1080,16 @@ function TodaySalesCard({ command, onSaveDay }) {
     setLogAmount(1);
     setSelectedBlockKey("");
     setLastQuickAdd(null);
+    lastTodaySyncKeyRef.current = "";
   }, [today?.date]);
 
   useEffect(() => {
+    if (lastTodaySyncKeyRef.current === todaySyncKey) return;
+    lastTodaySyncKeyRef.current = todaySyncKey;
     setNotes(today?.notes || "");
     setManualSales(today?.actual || 0);
     setBlockDrafts(blockDraftsFromDay(today));
-  }, [today]);
+  }, [today, todaySyncKey]);
 
   if (!today) return null;
 
