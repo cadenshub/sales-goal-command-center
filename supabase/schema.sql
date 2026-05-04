@@ -132,6 +132,7 @@ create table if not exists public.time_block_entries (
   end_time time not null,
   target_sales numeric not null default 0,
   actual_sales integer not null default 0,
+  type_breakdown jsonb not null default '{"doors":0,"phone":0}'::jsonb,
   notes text,
   status text not null default 'not_started',
   capacity_weight numeric not null default 1,

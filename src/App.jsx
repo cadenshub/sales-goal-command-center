@@ -5,14 +5,19 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  CloudSun,
   Edit3,
   Flame,
   Gift,
+  Home,
   LayoutDashboard,
   LogOut,
+  Moon,
+  Phone,
   Plus,
   Settings,
   Sparkles,
+  Sun,
   Target,
   TrendingUp,
 } from "lucide-react";
@@ -85,6 +90,11 @@ const statusColors = {
   critical: "bg-red-100 text-red-700 ring-red-200",
   neutral: "bg-slate-100 text-slate-700 ring-slate-200",
 };
+
+const saleTypeOptions = [
+  { key: "doors", label: "Doors", icon: Home },
+  { key: "phone", label: "Phone", icon: Phone },
+];
 
 const VERSION_CHECK_INTERVAL_MS = 60_000;
 const STARTUP_TIMEOUT_MS = 15_000;
@@ -373,6 +383,7 @@ export default function App() {
       actual_sales: Number(block.actual_sales ?? block.actual ?? 0),
       notes: block.notes || "",
       status: normalizeTimeBlockStatus(block.status),
+      type_breakdown: normalizeSaleTypeBreakdown(block.type_breakdown, Number(block.actual_sales ?? block.actual ?? 0)),
       capacity_weight: Number(block.capacity_weight ?? 1),
       include_in_calculations: block.include_in_calculations !== false,
     }));
@@ -1109,10 +1120,10 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [notes, setNotes] = useState(today?.notes || "");
   const [manualSales, setManualSales] = useState(today?.actual || 0);
   const [blockDrafts, setBlockDrafts] = useState(() => blockDraftsFromDay(today));
-  const [editOpen, setEditOpen] = useState(false);
   const [showAllBlocks, setShowAllBlocks] = useState(false);
   const [addSalesOpen, setAddSalesOpen] = useState(false);
   const [logAmount, setLogAmount] = useState(1);
+  const [saleType, setSaleType] = useState("doors");
   const [selectedBlockKey, setSelectedBlockKey] = useState("");
   const lastTodaySyncKeyRef = useRef("");
   const visibleBlocks = blockDrafts.filter((block) => block.active && !block.is_break);
@@ -1123,16 +1134,16 @@ function TodaySalesCard({ command, onSaveDay }) {
         today.actual,
         today.notes || "",
         ...(today.timeBlocks?.blocks || []).map((block) =>
-          `${block.key}:${block.actual}:${block.target}:${block.status}:${block.isCurrent ? "current" : ""}`,
+          `${block.key}:${block.actual}:${block.target}:${block.status}:${block.type_breakdown?.doors || 0}:${block.type_breakdown?.phone || 0}:${block.isCurrent ? "current" : ""}`,
         ),
       ].join("|")
     : "";
 
   useEffect(() => {
-    setEditOpen(false);
     setShowAllBlocks(false);
     setAddSalesOpen(false);
     setLogAmount(1);
+    setSaleType("doors");
     setSelectedBlockKey("");
     lastTodaySyncKeyRef.current = "";
   }, [today?.date]);
@@ -1153,11 +1164,16 @@ function TodaySalesCard({ command, onSaveDay }) {
   const activeBlock = currentBlock && !currentBlock.is_break ? currentBlock : visibleBlocks.find((block) => !block.isPast) || visibleBlocks[0];
   const selectedBlock = visibleBlocks.find((block) => block.key === selectedBlockKey) || activeBlock || visibleBlocks[0];
   const dailyProgress = (totalActual / Math.max(1, totalTarget)) * 100;
-  const morningBlock = visibleBlocks.find((block) => block.name.toLowerCase().includes("morning"));
-  const afternoonBlock = visibleBlocks.find((block) => block.name.toLowerCase().includes("afternoon"));
-  const summaryBlocks = [morningBlock || visibleBlocks[0], afternoonBlock || visibleBlocks.find((block) => block.key !== visibleBlocks[0]?.key)]
-    .filter(Boolean)
-    .filter((block, index, blocks) => blocks.findIndex((item) => item.key === block.key) === index);
+  const dayTypeTotals = blockDrafts.reduce(
+    (totals, block) => {
+      const breakdown = normalizeSaleTypeBreakdown(block.type_breakdown, Number(block.actual_sales || 0));
+      return {
+        doors: totals.doors + breakdown.doors,
+        phone: totals.phone + breakdown.phone,
+      };
+    },
+    { doors: 0, phone: 0 },
+  );
   const dayHelpText =
     today.dayType === "off"
       ? "Today is marked off. Bonus sales still count."
@@ -1169,12 +1185,21 @@ function TodaySalesCard({ command, onSaveDay }) {
     const key = selectedBlock?.key;
     if (!key) return;
     const amount = Math.max(1, Number(logAmount || 1));
-    const updatedBlocks = blockDrafts.map((block) =>
-      block.key === key
-        ? { ...block, actual_sales: Number(block.actual_sales || 0) + amount, status: "current" }
-        : block,
-    );
-    const updatedTotal = Number(manualSales || 0) + amount;
+    const updatedBlocks = blockDrafts.map((block) => {
+      if (block.key !== key) return block;
+      const typeBreakdown = normalizeSaleTypeBreakdown(block.type_breakdown, Number(block.actual_sales || 0));
+      const nextBreakdown = {
+        ...typeBreakdown,
+        [saleType]: Number(typeBreakdown[saleType] || 0) + amount,
+      };
+      return {
+        ...block,
+        type_breakdown: nextBreakdown,
+        actual_sales: nextBreakdown.doors + nextBreakdown.phone,
+        status: "current",
+      };
+    });
+    const updatedTotal = updatedBlocks.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
     setManualSales(updatedTotal);
     setBlockDrafts(updatedBlocks);
     await save(updatedBlocks, updatedTotal, key);
@@ -1182,7 +1207,7 @@ function TodaySalesCard({ command, onSaveDay }) {
 
   async function clearToday() {
     if (!window.confirm("Clear all sales for today?")) return;
-    const clearedBlocks = blockDrafts.map((block) => ({ ...block, actual_sales: 0 }));
+    const clearedBlocks = blockDrafts.map((block) => ({ ...block, actual_sales: 0, type_breakdown: { doors: 0, phone: 0 } }));
     setManualSales(0);
     setBlockDrafts(clearedBlocks);
     await save(clearedBlocks, 0);
@@ -1191,9 +1216,8 @@ function TodaySalesCard({ command, onSaveDay }) {
   async function clearBlock(blockToClear) {
     if (!blockToClear) return;
     if (!window.confirm(`Clear ${blockToClear.name} sales?`)) return;
-    const currentValue = Number(blockToClear.actual_sales || 0);
-    const nextTotal = Math.max(0, Number(manualSales || 0) - currentValue);
-    const clearedBlocks = blockDrafts.map((block) => (block.key === blockToClear.key ? { ...block, actual_sales: 0 } : block));
+    const clearedBlocks = blockDrafts.map((block) => (block.key === blockToClear.key ? { ...block, actual_sales: 0, type_breakdown: { doors: 0, phone: 0 } } : block));
+    const nextTotal = clearedBlocks.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
     setManualSales(nextTotal);
     setBlockDrafts(clearedBlocks);
     await save(clearedBlocks, nextTotal, blockToClear.key);
@@ -1223,6 +1247,7 @@ function TodaySalesCard({ command, onSaveDay }) {
         ...block,
         target_sales: block.target,
         actual_sales: Number(block.actual_sales || 0),
+        type_breakdown: normalizeSaleTypeBreakdown(block.type_breakdown, Number(block.actual_sales || 0)),
       })),
     });
   }
@@ -1262,44 +1287,52 @@ function TodaySalesCard({ command, onSaveDay }) {
             onClick={() => setAddSalesOpen((value) => !value)}
             className="rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-card transition hover:bg-indigo-700"
           >
-            Add Sales
+            {addSalesOpen ? "Close" : "Add Sales"}
           </button>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {summaryBlocks.map((block) => {
-            const blockProgress = (Number(block.actual_sales || 0) / Math.max(1, Number(block.target || 0))) * 100;
-            return (
-              <div key={block.key} className="min-w-0 rounded-2xl bg-white p-2.5 ring-1 ring-slate-200">
-                <div className="truncate text-sm font-black text-slate-900">{block.name}</div>
-                <div className="mt-1 text-xs font-bold text-slate-500">
-                  {number(block.actual_sales || 0)} / {number(block.target || 0, 1)}
-                </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${Math.min(100, blockProgress)}%` }} />
-                </div>
-              </div>
-            );
-          })}
         </div>
         {addSalesOpen && (
           <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+            <div className="text-xs font-black uppercase tracking-wide text-slate-400">Block</div>
             <div className="flex flex-wrap gap-1.5">
               {visibleBlocks.map((block) => {
                 const selected = block.key === selectedBlock?.key;
+                const Icon = blockIcon(block);
                 return (
                   <button
                     key={block.key}
                     type="button"
                     onClick={() => setSelectedBlockKey(block.key)}
-                    className={`rounded-xl px-2.5 py-2 text-xs font-black transition ${
+                    className={`flex min-h-10 items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-black transition ${
                       selected ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"
                     }`}
                   >
+                    <Icon size={14} />
                     {block.name}
                   </button>
                 );
               })}
             </div>
+            <div className="mt-3 text-xs font-black uppercase tracking-wide text-slate-400">Type</div>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              {saleTypeOptions.map((option) => {
+                const Icon = option.icon;
+                const selected = saleType === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => setSaleType(option.key)}
+                    className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-black transition ${
+                      selected ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    <Icon size={16} />
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 text-xs font-black uppercase tracking-wide text-slate-400">Amount</div>
             <div className="mt-3 grid grid-cols-5 gap-1.5">
               {[1, 2, 3, 4, 5].map((amount) => (
                 <button
@@ -1331,18 +1364,6 @@ function TodaySalesCard({ command, onSaveDay }) {
         )}
       </div>
 
-      {editOpen && (
-        <div className="mt-3 rounded-3xl bg-slate-50 p-4">
-          <div className="grid gap-3 md:grid-cols-[0.4fr_1fr]">
-            <Field label="Manual total" type="number" value={manualSales} onChange={setManualSales} />
-            <Field label="Notes" value={notes} onChange={setNotes} />
-          </div>
-          <button type="button" onClick={() => save()} className="mt-4 w-full rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white shadow-card">
-            Save changes
-          </button>
-        </div>
-      )}
-
       <button
         type="button"
         onClick={() => setShowAllBlocks((value) => !value)}
@@ -1353,44 +1374,54 @@ function TodaySalesCard({ command, onSaveDay }) {
 
       {showAllBlocks && (
       <div className="mt-3 grid gap-2">
-        {visibleBlocks.map((block) => (
-          <div
-            key={block.key}
-            className={`rounded-2xl border p-3 ${
-              block.isCurrent ? "border-indigo-300 bg-indigo-50" : "border-slate-200 bg-white"
-            }`}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate font-black">{block.name}</div>
-                <div className="text-xs font-bold text-slate-500">{block.start_time} - {block.end_time}</div>
-              </div>
-              <div className="shrink-0 text-sm font-black text-slate-600">
-                {number(block.actual_sales || 0)} / {number(block.target || 0, 1)}
-              </div>
-            </div>
-            <Progress value={(Number(block.actual_sales || 0) / Math.max(1, Number(block.target || 0))) * 100} tone="purple" />
-            <button
-              type="button"
-              onClick={() => clearBlock(block)}
-              disabled={Number(block.actual_sales || 0) <= 0}
-              className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-3">
+          <SaleTypeMiniStat icon={Home} label="Doors" value={dayTypeTotals.doors} />
+          <SaleTypeMiniStat icon={Phone} label="Phone" value={dayTypeTotals.phone} />
+        </div>
+        {visibleBlocks.map((block) => {
+          const Icon = blockIcon(block);
+          const breakdown = normalizeSaleTypeBreakdown(block.type_breakdown, Number(block.actual_sales || 0));
+          return (
+            <div
+              key={block.key}
+              className={`rounded-2xl border p-3 ${
+                block.isCurrent ? "border-indigo-300 bg-indigo-50" : "border-slate-200 bg-white"
+              }`}
             >
-              Clear {block.name}
-            </button>
-          </div>
-        ))}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
+                    <Icon size={16} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate font-black">{block.name}</div>
+                    <div className="text-xs font-bold text-slate-500">Total: {number(block.actual_sales || 0)}</div>
+                  </div>
+                </div>
+                <div className="shrink-0 text-sm font-black text-slate-600">
+                  {number(block.actual_sales || 0)} / {number(block.target || 0, 1)}
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <SaleTypeMiniStat icon={Home} label="Doors" value={breakdown.doors} />
+                <SaleTypeMiniStat icon={Phone} label="Phone" value={breakdown.phone} />
+              </div>
+              <Progress value={(Number(block.actual_sales || 0) / Math.max(1, Number(block.target || 0))) * 100} tone="purple" />
+              <button
+                type="button"
+                onClick={() => clearBlock(block)}
+                disabled={Number(block.actual_sales || 0) <= 0}
+                className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Clear {block.name}
+              </button>
+            </div>
+          );
+        })}
       </div>
       )}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => setEditOpen((value) => !value)}
-          className="rounded-2xl bg-slate-100 px-3 py-3 text-xs font-black text-slate-700"
-        >
-          {editOpen ? "Close edit" : "Edit day"}
-        </button>
-        <button type="button" onClick={clearToday} className="rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700">
+      <div className="mt-3">
+        <button type="button" onClick={clearToday} className="w-full rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700">
           Clear day
         </button>
       </div>
@@ -2296,6 +2327,7 @@ function blockDraftsFromDay(day) {
     target_sales: block.target,
     actual: block.actual,
     actual_sales: block.actual,
+    type_breakdown: normalizeSaleTypeBreakdown(block.type_breakdown, Number(block.actual || 0)),
     notes: block.notes || "",
     status: block.status,
     capacity_weight: block.capacity_weight,
@@ -2303,6 +2335,18 @@ function blockDraftsFromDay(day) {
     isCurrent: block.isCurrent,
     minutesLeft: block.minutesLeft,
   }));
+}
+
+function SaleTypeMiniStat({ icon: Icon, label, value }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-xl bg-white px-2.5 py-2 ring-1 ring-slate-200">
+      <Icon size={14} className="shrink-0 text-slate-500" />
+      <div className="min-w-0">
+        <div className="truncate text-[11px] font-black uppercase tracking-wide text-slate-400">{label}</div>
+        <div className="text-sm font-black text-slate-900">{number(value)}</div>
+      </div>
+    </div>
+  );
 }
 
 function LoadingScreen({ timedOut, onRetry, onSignOut }) {
@@ -2371,6 +2415,31 @@ function normalizeTimeBlockStatus(status) {
   if (value === "skipped" || value === "off") return "skipped";
   if (value === "partial" || value === "half_day") return "partial";
   return "not_started";
+}
+
+function normalizeSaleTypeBreakdown(value, fallbackActual = 0) {
+  const source = typeof value === "string" ? safeJsonParse(value) : value;
+  const doors = Math.max(0, Number(source?.doors || 0));
+  const phone = Math.max(0, Number(source?.phone || 0));
+  if (doors + phone > 0) return { doors, phone };
+  return { doors: Math.max(0, Number(fallbackActual || 0)), phone: 0 };
+}
+
+function safeJsonParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function blockIcon(block) {
+  const name = String(block?.name || "").toLowerCase();
+  if (name.includes("morning")) return Sun;
+  if (name.includes("afternoon")) return CloudSun;
+  if (name.includes("evening")) return Moon;
+  if (name.includes("push")) return Flame;
+  return Clock;
 }
 
 function getCalendarRange(mode, anchor, customStart, customEnd, command) {

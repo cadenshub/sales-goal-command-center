@@ -605,6 +605,7 @@ export function buildTimeBlockPlan({ date, dailyTarget, entries, config, now = n
       actual,
       remaining,
       notes: entry.notes || "",
+      type_breakdown: normalizeSaleTypeBreakdown(entry.type_breakdown, actual),
       status: blockStatus({ block, isCurrent, isPast, isFuture, isSkipped, actual, target }),
       isCurrent,
       isPast,
@@ -633,6 +634,22 @@ function groupTimeBlocks(entries) {
     groups[entry.date].push(entry);
     return groups;
   }, {});
+}
+
+function normalizeSaleTypeBreakdown(value, fallbackActual = 0) {
+  const source = typeof value === "string" ? safeJsonParse(value) : value;
+  const doors = Math.max(0, Number(source?.doors || 0));
+  const phone = Math.max(0, Number(source?.phone || 0));
+  if (doors + phone > 0) return { doors, phone };
+  return { doors: Math.max(0, Number(fallbackActual || 0)), phone: 0 };
+}
+
+function safeJsonParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 function blockStartMinutes(block) {
