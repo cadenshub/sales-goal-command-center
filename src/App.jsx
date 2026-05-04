@@ -1786,6 +1786,7 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
 
 function weeklyAchievement(progress, goal) {
   if (!goal || goal <= 0) return null;
+  if (progress <= 0) return null;
   if (progress > 1) return { label: "Diamond", className: "bg-cyan-100 text-cyan-700 ring-1 ring-cyan-200 dark:bg-cyan-400/20 dark:text-cyan-100 dark:ring-cyan-300/30" };
   if (progress >= 1) return { label: "Gold", className: "bg-yellow-200 text-yellow-900 ring-1 ring-yellow-400/60 dark:bg-yellow-300 dark:text-yellow-950 dark:ring-yellow-100/40" };
   if (progress >= 0.75) return { label: "Silver", className: "bg-slate-200 text-slate-700 ring-1 ring-slate-300 dark:bg-slate-300 dark:text-slate-900 dark:ring-slate-100/40" };
