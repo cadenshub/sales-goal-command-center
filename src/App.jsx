@@ -87,6 +87,7 @@ const statusColors = {
 };
 
 const VERSION_CHECK_INTERVAL_MS = 60_000;
+const STARTUP_TIMEOUT_MS = 15_000;
 
 export default function App() {
   useAutoRefreshOnNewBuild();
@@ -98,7 +99,10 @@ export default function App() {
   const [selectedDay, setSelectedDay] = useState(null);
   const [saveState, setSaveState] = useState("Saved");
   const [clockTick, setClockTick] = useState(0);
+  const [startupError, setStartupError] = useState("");
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const loadedUserIdRef = useRef(null);
+  const loadRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -106,22 +110,14 @@ export default function App() {
       return undefined;
     }
     let mounted = true;
-    getSession()
-      .then(async (activeSession) => {
-        if (!mounted) return;
-        setSession(activeSession);
-        if (activeSession?.user) await bootstrapWorkspace(activeSession.user);
-        else setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
+    loadInitialSession();
     const { data } = onAuthChange(async (nextSession, event) => {
+      if (!mounted) return;
       setSession(nextSession);
       if (!nextSession?.user) {
         setWorkspace(null);
         loadedUserIdRef.current = null;
+        setStartupError("");
         setLoading(false);
         return;
       }
@@ -132,6 +128,24 @@ export default function App() {
       mounted = false;
       data.subscription.unsubscribe();
     };
+
+    async function loadInitialSession() {
+      setLoading(true);
+      setLoadingTimedOut(false);
+      setStartupError("");
+      try {
+        const activeSession = await withTimeout(getSession(), "Supabase session restore");
+        if (!mounted) return;
+        setSession(activeSession);
+        if (activeSession?.user) await bootstrapWorkspace(activeSession.user);
+        else setLoading(false);
+      } catch (err) {
+        if (!mounted) return;
+        console.error("Startup session load failed", err);
+        setStartupError(readableError(err));
+        setLoading(false);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -139,18 +153,41 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (!loading) {
+      setLoadingTimedOut(false);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setLoadingTimedOut(true), STARTUP_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
+
   async function bootstrapWorkspace(user) {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     setLoading(true);
+    setLoadingTimedOut(false);
     setError("");
+    setStartupError("");
     try {
-      await ensureProfile(user);
-      setWorkspace(await loadWorkspace(user.id));
+      await withTimeout(ensureProfile(user), "User profile setup");
+      const nextWorkspace = await withTimeout(loadWorkspace(user.id), "Workspace data load");
+      if (loadRequestIdRef.current !== requestId) return;
+      setWorkspace(nextWorkspace);
       loadedUserIdRef.current = user.id;
     } catch (err) {
-      setError(err.message);
+      if (loadRequestIdRef.current !== requestId) return;
+      console.error("Workspace load failed", err);
+      setStartupError(readableError(err));
+      setWorkspace(null);
     } finally {
-      setLoading(false);
+      if (loadRequestIdRef.current === requestId) setLoading(false);
     }
+  }
+
+  function retryStartup() {
+    if (session?.user) bootstrapWorkspace(session.user);
+    else window.location.reload();
   }
 
   const command = useMemo(() => {
@@ -177,8 +214,9 @@ export default function App() {
   }
 
   if (!isSupabaseConfigured) return <ConfigRequired />;
-  if (!session) return <AuthPage error={error} setError={setError} />;
-  if (loading) return <LoadingScreen />;
+  if (loading) return <LoadingScreen timedOut={loadingTimedOut} onRetry={retryStartup} onSignOut={() => signOut()} />;
+  if (!session) return <AuthPage error={startupError || error} setError={setError} />;
+  if (startupError) return <StartupError error={startupError} onRetry={retryStartup} onSignOut={() => signOut()} />;
   if (!workspace) {
     return (
       <SetupWizard
@@ -542,6 +580,22 @@ function useAutoRefreshOnNewBuild() {
       window.removeEventListener("focus", checkWhenVisible);
     };
   }, []);
+}
+
+function withTimeout(promise, label) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`${label} took too long. Check your connection and try again.`));
+    }, STARTUP_TIMEOUT_MS);
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => window.clearTimeout(timer));
+  });
+}
+
+function readableError(error) {
+  return error?.message || "Something went wrong while loading the app.";
 }
 
 function ConfigRequired() {
@@ -2238,8 +2292,55 @@ function blockDraftsFromDay(day) {
   }));
 }
 
-function LoadingScreen() {
-  return <div className="grid min-h-screen place-items-center text-xl font-black text-slate-600">Loading your command center...</div>;
+function LoadingScreen({ timedOut, onRetry, onSignOut }) {
+  return (
+    <div className="grid min-h-screen place-items-center px-4">
+      <div className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-card">
+        <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
+        <h1 className="mt-4 text-xl font-black text-slate-900">Loading your command center...</h1>
+        {timedOut && (
+          <>
+            <p className="mt-2 text-sm font-bold text-slate-500">Still loading. Something may be stuck, but you are not trapped here.</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" onClick={onRetry} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
+                Retry
+              </button>
+              <button type="button" onClick={onSignOut} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700">
+                Sign out
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StartupError({ error, onRetry, onSignOut }) {
+  return (
+    <div className="grid min-h-screen place-items-center px-4">
+      <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-card">
+        <div className="flex items-center gap-3">
+          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-red-50 text-red-600">
+            <AlertTriangle size={22} />
+          </div>
+          <div>
+            <h1 className="text-xl font-black text-slate-950">Couldn’t load the app</h1>
+            <p className="text-sm font-bold text-slate-500">The loader stopped safely instead of spinning forever.</p>
+          </div>
+        </div>
+        <div className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div>
+        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          <button type="button" onClick={onRetry} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
+            Retry
+          </button>
+          <button type="button" onClick={onSignOut} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700">
+            Sign out
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function statusTone(status) {

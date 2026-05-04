@@ -45,39 +45,26 @@ export async function loadWorkspace(userId) {
   if (!plan) return null;
 
   const [
-    { data: settings, error: settingsError },
-    { data: weeks, error: weeksError },
-    { data: goalPeriods, error: goalPeriodsError },
-    { data: calendarDays, error: calendarDaysError },
-    { data: salesEntries, error: salesEntriesError },
-    { data: timeBlockEntries, error: timeBlockEntriesError },
-    { data: weeklyConfirmations, error: weeklyConfirmationsError },
-    { data: incentives, error: incentivesError },
-    { data: savedFilters, error: filtersError },
+    settings,
+    weeks,
+    goalPeriods,
+    calendarDays,
+    salesEntries,
+    timeBlockEntries,
+    weeklyConfirmations,
+    incentives,
+    savedFilters,
   ] = await Promise.all([
-    supabase.from("settings").select("*").eq("plan_id", plan.id).maybeSingle(),
-    supabase.from("weeks").select("*").eq("plan_id", plan.id).order("week_start"),
-    supabase.from("goal_periods").select("*").eq("plan_id", plan.id).order("start_date"),
-    supabase.from("calendar_days").select("*").eq("plan_id", plan.id).order("date"),
-    supabase.from("sales_entries").select("*").eq("plan_id", plan.id).order("date"),
-    supabase.from("time_block_entries").select("*").eq("plan_id", plan.id).order("date"),
-    supabase.from("weekly_confirmations").select("*").eq("plan_id", plan.id).order("week_start"),
-    supabase.from("incentives").select("*").eq("plan_id", plan.id).order("target_value"),
-    supabase.from("saved_filters").select("*").eq("plan_id", plan.id).order("created_at"),
+    requiredQuery("settings", supabase.from("settings").select("*").eq("plan_id", plan.id).maybeSingle()),
+    requiredQuery("weeks", supabase.from("weeks").select("*").eq("plan_id", plan.id).order("week_start")),
+    requiredQuery("goal_periods", supabase.from("goal_periods").select("*").eq("plan_id", plan.id).order("start_date")),
+    requiredQuery("calendar_days", supabase.from("calendar_days").select("*").eq("plan_id", plan.id).order("date")),
+    requiredQuery("sales_entries", supabase.from("sales_entries").select("*").eq("plan_id", plan.id).order("date")),
+    optionalQuery("time_block_entries", supabase.from("time_block_entries").select("*").eq("plan_id", plan.id).order("date"), []),
+    optionalQuery("weekly_confirmations", supabase.from("weekly_confirmations").select("*").eq("plan_id", plan.id).order("week_start"), []),
+    optionalQuery("incentives", supabase.from("incentives").select("*").eq("plan_id", plan.id).order("target_value"), []),
+    optionalQuery("saved_filters", supabase.from("saved_filters").select("*").eq("plan_id", plan.id).order("created_at"), []),
   ]);
-
-  const errors = [
-    settingsError,
-    weeksError,
-    goalPeriodsError,
-    calendarDaysError,
-    salesEntriesError,
-    timeBlockEntriesError?.code === "42P01" ? null : timeBlockEntriesError,
-    weeklyConfirmationsError?.code === "42P01" ? null : weeklyConfirmationsError,
-    incentivesError,
-    filtersError,
-  ].filter(Boolean);
-  if (errors.length) throw errors[0];
 
   return {
     plan,
@@ -98,6 +85,37 @@ export async function loadWorkspace(userId) {
     incentives: incentives || [],
     savedFilters: savedFilters || [],
   };
+}
+
+async function requiredQuery(tableName, query) {
+  try {
+    const { data, error } = await query;
+    if (error) throw enrichQueryError(tableName, error);
+    return data;
+  } catch (error) {
+    if (error?.cause) throw error;
+    throw enrichQueryError(tableName, error);
+  }
+}
+
+async function optionalQuery(tableName, query, fallback) {
+  try {
+    const { data, error } = await query;
+    if (error) throw enrichQueryError(tableName, error);
+    return data ?? fallback;
+  } catch (error) {
+    console.warn(`Optional Supabase query failed for ${tableName}`, error);
+    return fallback;
+  }
+}
+
+function enrichQueryError(tableName, error) {
+  const message = error?.code === "42P01"
+    ? `Database setup missing: ${tableName} table. Run the latest SQL migration.`
+    : `Supabase query failed for ${tableName}: ${error?.message || "Unknown error"}`;
+  const enriched = new Error(message);
+  enriched.cause = error;
+  return enriched;
 }
 
 export async function upsertTimeBlockEntries(entries) {
