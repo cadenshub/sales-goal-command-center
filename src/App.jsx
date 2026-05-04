@@ -100,9 +100,11 @@ const saleTypeOptions = [
 
 const VERSION_CHECK_INTERVAL_MS = 60_000;
 const STARTUP_TIMEOUT_MS = 15_000;
+const THEME_STORAGE_KEY = "sgcc-theme";
 
 export default function App() {
   useAutoRefreshOnNewBuild();
+  const [theme, setTheme] = useState(getInitialTheme);
   const [session, setSession] = useState(null);
   const [workspace, setWorkspace] = useState(null);
   const [page, setPage] = useState("dashboard");
@@ -116,6 +118,12 @@ export default function App() {
   const loadedUserIdRef = useRef(null);
   const loadingUserIdRef = useRef(null);
   const loadRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -321,6 +329,7 @@ export default function App() {
               <h1 className="text-2xl font-black tracking-tight text-slate-950 md:text-3xl">{workspace.plan.name}</h1>
             </div>
             <div className="flex items-center gap-2">
+              <ThemeToggle theme={theme} onToggle={() => setTheme((value) => (value === "dark" ? "light" : "dark"))} />
               <Badge tone={command.paceStatus.key}>{command.paceStatus.label}</Badge>
               <button
                 type="button"
@@ -1611,18 +1620,18 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
           <button
             type="button"
             onClick={() => setAnchor(toISO(addDays(monthStartDate, -1)))}
-            className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-200 active:scale-[0.98]"
+            className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-200 active:scale-[0.98] dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
           >
             Prev
           </button>
           <div className="text-center">
             <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Calendar</div>
-            <h2 className="text-xl font-black text-slate-950">{formatMonth(anchor)}</h2>
+            <h2 className="text-xl font-black text-slate-950 dark:text-slate-50">{formatMonth(anchor)}</h2>
           </div>
           <button
             type="button"
             onClick={() => setAnchor(toISO(addDays(monthEndDate, 1)))}
-            className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-200 active:scale-[0.98]"
+            className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-200 active:scale-[0.98] dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
           >
             Next
           </button>
@@ -1630,7 +1639,7 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
         <button
           type="button"
           onClick={() => setAnchor(command.today)}
-          className="mt-3 w-full rounded-2xl bg-indigo-50 px-4 py-2 text-sm font-black text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.99]"
+          className="mt-3 w-full rounded-2xl bg-indigo-50 px-4 py-2 text-sm font-black text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.99] dark:bg-indigo-950/70 dark:text-indigo-200 dark:hover:bg-indigo-900"
         >
           Jump to today
         </button>
@@ -1638,7 +1647,7 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
           type="button"
           onClick={() => setBlackoutMode((value) => !value)}
           className={`mt-2 w-full rounded-2xl px-4 py-2 text-sm font-black transition active:scale-[0.99] ${
-            blackoutMode ? "bg-slate-950 text-white hover:bg-slate-800" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            blackoutMode ? "bg-slate-950 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950" : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
           }`}
         >
           {blackoutMode ? "Done" : "Blackout Dates"}
@@ -1650,8 +1659,8 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
         )}
       </section>
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-card">
-        <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50">
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-card dark:border-slate-700 dark:bg-slate-900">
+        <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
           {weekdayLabels.map((label) => (
             <div key={label} className="py-2 text-center text-[11px] font-black uppercase tracking-wide text-slate-400">
               {label}
@@ -1666,8 +1675,8 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
             const weekPercent = weekGoal > 0 ? Math.round(weekProgress * 100) : null;
             const achievement = weeklyAchievement(weekProgress, weekGoal);
             return (
-              <div key={week[0]} className="border-b border-slate-100 last:border-0">
-                <div className="flex items-center justify-between gap-2 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-500">
+              <div key={week[0]} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                <div className="flex items-center justify-between gap-2 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-500 dark:bg-slate-950 dark:text-slate-400">
                   <span>
                     Week: <span className="text-emerald-700">+{number(weekTotal)}</span>
                     {weekGoal > 0 && <span className="text-slate-400"> / {number(weekGoal)}</span>}
@@ -1676,7 +1685,7 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
                   {achievement && <span className={`rounded-full px-2 py-0.5 text-[11px] ${achievement.className}`}>{achievement.label}</span>}
                 </div>
                 {weekGoal > 0 && weekTotal >= weekGoal && (
-                  <div className="border-t border-yellow-100 bg-yellow-50 px-3 py-1 text-[11px] font-black text-yellow-800">
+                  <div className="border-t border-yellow-500/30 bg-yellow-700 px-3 py-1 text-[11px] font-black text-yellow-50 shadow-inner dark:border-yellow-300/20 dark:bg-yellow-600 dark:text-yellow-950">
                     🥇 Goals Met
                   </div>
                 )}
@@ -1702,12 +1711,12 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
                         onClick={() => pickDay(date)}
                         className={`min-h-[4.4rem] border-r border-slate-100 p-2 text-left transition last:border-r-0 hover:bg-indigo-50/60 active:scale-[0.98] ${
                           metGoal
-                            ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
+                            ? "border-emerald-400 bg-emerald-500 text-white shadow-inner hover:bg-emerald-600 dark:border-emerald-300 dark:bg-emerald-500 dark:hover:bg-emerald-400"
                             : nonCountingCurrentMonth
-                              ? "bg-slate-700 text-slate-100 hover:bg-slate-600"
+                              ? "bg-slate-600 text-slate-50 hover:bg-slate-500 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600"
                               : outsideMonth
-                                ? "bg-slate-200/70 text-slate-400 hover:bg-slate-200"
-                                : "bg-white"
+                                ? "bg-slate-200/70 text-slate-400 hover:bg-slate-200 dark:bg-slate-800/70 dark:text-slate-500 dark:hover:bg-slate-800"
+                                : "bg-white hover:bg-indigo-50/60 dark:bg-slate-900 dark:hover:bg-slate-800"
                         } ${day.isToday ? "outline outline-2 outline-inset outline-indigo-400" : ""} ${selected ? "ring-2 ring-inset ring-indigo-500" : ""} ${savingBlackout ? "opacity-70" : ""}`}
                         aria-label={`${blackoutMode ? "Toggle blackout for" : "Edit"} ${formatDate(date)}`}
                       >
@@ -1729,7 +1738,10 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
                           </span>
                           <span className="flex items-center gap-1">
                             {claimedIncentives > 0 && (
-                              <span className="text-[10px] leading-none" aria-label={`${claimedIncentives} claimed incentive${claimedIncentives === 1 ? "" : "s"}`}>
+                              <span
+                                className="inline-grid h-4 w-4 place-items-center rounded-full bg-purple-50 text-[10px] leading-none ring-1 ring-purple-400 dark:bg-purple-950 dark:ring-purple-300"
+                                aria-label={`${claimedIncentives} claimed incentive${claimedIncentives === 1 ? "" : "s"}`}
+                              >
                                 🎁
                               </span>
                             )}
@@ -1774,10 +1786,10 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
 
 function weeklyAchievement(progress, goal) {
   if (!goal || goal <= 0) return null;
-  if (progress > 1) return { label: "Diamond", className: "bg-blue-100 text-blue-700" };
-  if (progress >= 1) return { label: "🥇", className: "bg-yellow-100 text-yellow-800" };
-  if (progress >= 0.75) return { label: "Silver", className: "bg-slate-200 text-slate-700" };
-  if (progress < 0.6) return { label: "Bronze", className: "bg-stone-200 text-stone-700" };
+  if (progress > 1) return { label: "Diamond", className: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-200" };
+  if (progress >= 1) return { label: "🥇", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-400/20 dark:text-yellow-200" };
+  if (progress >= 0.75) return { label: "Silver", className: "bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-slate-100" };
+  if (progress < 0.6) return { label: "Bronze", className: "bg-stone-200 text-stone-700 dark:bg-stone-700 dark:text-stone-100" };
   return null;
 }
 
@@ -1785,6 +1797,26 @@ function incentiveCalendarDate(incentive) {
   return [incentive.claimed_at, incentive.target_date, incentive.updated_at]
     .map((value) => String(value || "").slice(0, 10))
     .find((value) => /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function getInitialTheme() {
+  const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (saved === "dark" || saved === "light") return saved;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function ThemeToggle({ theme, onToggle }) {
+  const Icon = theme === "dark" ? Sun : Moon;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-card transition hover:-translate-y-0.5 hover:border-indigo-200 hover:text-indigo-700 active:scale-[0.98] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-indigo-400"
+      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+    >
+      <Icon size={18} />
+    </button>
+  );
 }
 
 function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay, saveWeeklyConfirmation }) {
