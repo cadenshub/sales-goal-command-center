@@ -23,6 +23,14 @@ export const dayTypes = {
   custom: { label: "Custom", weight: 1, color: "violet" },
 };
 
+export function getEffectiveWeeklyGoal(week, planOrDefaultGoal) {
+  const defaultGoal =
+    typeof planOrDefaultGoal === "object"
+      ? Number(planOrDefaultGoal?.default_weekly_goal || 0)
+      : Number(planOrDefaultGoal || 0);
+  return week?.custom_goal_enabled ? Number(week.weekly_goal || 0) : defaultGoal;
+}
+
 export const defaultTimeBlocks = [
   {
     key: "morning",
@@ -75,6 +83,7 @@ export function buildCommandCenter(workspace) {
   const entriesByDate = Object.fromEntries((workspace.salesEntries || []).map((entry) => [entry.date, entry]));
   const timeBlockEntries = workspace.timeBlockEntries || [];
   const timeBlocksByDate = groupTimeBlocks(timeBlockEntries);
+  const weeklyConfirmationsByRange = groupWeeklyConfirmations(workspace.weeklyConfirmations || []);
   const dayOverrides = Object.fromEntries((workspace.calendarDays || []).map((day) => [day.date, day]));
   const normalWorkdays = settings.normal_workdays || [1, 2, 3, 4, 5, 6];
   const timeBlocksConfig = normalizeTimeBlocks(settings.time_blocks_config);
@@ -129,24 +138,37 @@ export function buildCommandCenter(workspace) {
     today >= plan.start_date && today <= plan.end_date && todayCapacity > 0
       ? Math.max(0, requiredPerWorkday * todayCapacity - saleCount(today, entriesByDate, timeBlocksByDate))
       : 0;
-  const dayPlans = seasonDates.map((date) =>
-    buildDayPlan(date, {
-      today,
-      requiredPerWorkday,
-      baselineDailyTarget: baselineCapacity > 0 ? Number(plan.total_goal || 0) / baselineCapacity : 0,
-      normalWorkdays,
-      dayOverrides,
-      entriesByDate,
-      timeBlocksByDate,
-      timeBlocksConfig,
-    }),
-  );
-  const todayPlan = dayPlans.find((day) => day.date === today) || null;
+  const dayPlanContext = {
+    today,
+    requiredPerWorkday,
+    baselineDailyTarget: baselineCapacity > 0 ? Number(plan.total_goal || 0) / baselineCapacity : 0,
+    normalWorkdays,
+    dayOverrides,
+    entriesByDate,
+    timeBlocksByDate,
+    timeBlocksConfig,
+  };
+  const dayPlans = seasonDates.map((date) => buildDayPlan(date, dayPlanContext));
+  const todayPlan =
+    dayPlans.find((day) => day.date === today) ||
+    buildDayPlan(today, {
+      ...dayPlanContext,
+      requiredPerWorkday: 0,
+      baselineDailyTarget: 0,
+    });
   const bestDay = workedDates.reduce((best, date) => (saleCount(date, entriesByDate, timeBlocksByDate) > saleCount(best, entriesByDate, timeBlocksByDate) ? date : best), workedDates[0]);
   const worstDay = workedDates.reduce((worst, date) => (saleCount(date, entriesByDate, timeBlocksByDate) < saleCount(worst, entriesByDate, timeBlocksByDate) ? date : worst), workedDates[0]);
   const zeroSaleDays = workedDates.filter((date) => saleCount(date, entriesByDate, timeBlocksByDate) === 0).length;
   const currentStreak = getCurrentStreak(today, plan.start_date, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate);
-  const weeks = buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate);
+  const weeks = buildWeeks(
+    workspace,
+    weekStartDay,
+    normalWorkdays,
+    dayOverrides,
+    entriesByDate,
+    timeBlocksByDate,
+    weeklyConfirmationsByRange,
+  );
   const incentives = evaluateIncentives(workspace.incentives || [], {
     completed,
     currentStreak,
@@ -184,6 +206,7 @@ export function buildCommandCenter(workspace) {
     dayPlans,
     todayPlan,
     weeks,
+    weeklyConfirmationsByRange,
     incentives,
     nextIncentive,
     currentWeek,
@@ -350,18 +373,28 @@ function getCurrentStreak(today, seasonStart, normalWorkdays, dayOverrides, entr
 function getWeekRange(workspace, start, end, defaultGoal) {
   const match = (workspace.weeks || []).find((week) => start <= week.week_end && end >= week.week_start);
   return (
-    match || {
-      week_start: start,
-      week_end: end,
-      weekly_goal: defaultGoal,
-      custom_goal_enabled: false,
-      custom_range_enabled: false,
-      range_label: "Current sales week",
-    }
+    match
+      ? { ...match, weekly_goal: getEffectiveWeeklyGoal(match, defaultGoal) }
+      : {
+          week_start: start,
+          week_end: end,
+          weekly_goal: defaultGoal,
+          custom_goal_enabled: false,
+          custom_range_enabled: false,
+          range_label: "Current sales week",
+        }
   );
 }
 
-function buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate) {
+function buildWeeks(
+  workspace,
+  weekStartDay,
+  normalWorkdays,
+  dayOverrides,
+  entriesByDate,
+  timeBlocksByDate,
+  weeklyConfirmationsByRange,
+) {
   const plan = workspace.plan;
   const ranges = [];
   let cursor = weekStart(parseISO(plan.start_date), weekStartDay);
@@ -374,7 +407,11 @@ function buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entri
   }
 
   const unique = new Map();
-  [...ranges, ...(workspace.weeks || [])].forEach((week) => {
+  const normalizedSavedWeeks = (workspace.weeks || []).map((week) => ({
+    ...week,
+    weekly_goal: getEffectiveWeeklyGoal(week, plan),
+  }));
+  [...ranges, ...normalizedSavedWeeks].forEach((week) => {
     unique.set(`${week.week_start}-${week.week_end}`, week);
   });
 
@@ -382,22 +419,35 @@ function buildWeeks(workspace, weekStartDay, normalWorkdays, dayOverrides, entri
     .sort((a, b) => a.week_start.localeCompare(b.week_start))
     .map((week) => {
       const actual = sumSales(week.week_start, week.week_end, entriesByDate, timeBlocksByDate);
-      const remaining = Math.max(0, Number(week.weekly_goal || 0) - actual);
+      const weeklyGoal = getEffectiveWeeklyGoal(week, plan);
+      const remaining = Math.max(0, weeklyGoal - actual);
       const today = todayISO();
       const remainingStart = maxISO(today, week.week_start);
       const capacity = remainingStart <= week.week_end ? sumCapacity(remainingStart, week.week_end, normalWorkdays, dayOverrides) : 0;
       const requiredPerDay = capacity > 0 ? remaining / capacity : 0;
-      const progress = Number(week.weekly_goal || 0) > 0 ? (actual / Number(week.weekly_goal || 0)) * 100 : 100;
+      const progress = weeklyGoal > 0 ? (actual / weeklyGoal) * 100 : 100;
+      const confirmation = weeklyConfirmationsByRange[`${week.week_start}:${week.week_end}`] || null;
       return {
         ...week,
+        weekly_goal: weeklyGoal,
         actual,
         remaining,
         remainingCapacity: capacity,
         requiredPerDay,
         progress,
+        confirmation,
+        confirmedSales: confirmation ? Number(confirmation.confirmed_sales || 0) : null,
+        pendingSales: confirmation ? Number(confirmation.pending_sales || 0) : Math.max(0, actual),
         status: requiredPerDay > Number(workspace.plan.max_sales_per_day || 0) ? "Overloaded" : progress >= 100 ? "Ahead" : "Active",
       };
     });
+}
+
+function groupWeeklyConfirmations(confirmations) {
+  return confirmations.reduce((groups, item) => {
+    groups[`${item.week_start}:${item.week_end}`] = item;
+    return groups;
+  }, {});
 }
 
 function evaluateIncentives(incentives, metrics) {
@@ -571,6 +621,7 @@ export function buildTimeBlockPlan({ date, dailyTarget, entries, config, now = n
       actual,
       remaining,
       notes: entry.notes || "",
+      type_breakdown: normalizeSaleTypeBreakdown(entry.type_breakdown, actual),
       status: blockStatus({ block, isCurrent, isPast, isFuture, isSkipped, actual, target }),
       isCurrent,
       isPast,
@@ -599,6 +650,22 @@ function groupTimeBlocks(entries) {
     groups[entry.date].push(entry);
     return groups;
   }, {});
+}
+
+function normalizeSaleTypeBreakdown(value, fallbackActual = 0) {
+  const source = typeof value === "string" ? safeJsonParse(value) : value;
+  const doors = Math.max(0, Number(source?.doors || 0));
+  const phone = Math.max(0, Number(source?.phone || 0));
+  if (doors + phone > 0) return { doors, phone };
+  return { doors: Math.max(0, Number(fallbackActual || 0)), phone: 0 };
+}
+
+function safeJsonParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 function blockStartMinutes(block) {

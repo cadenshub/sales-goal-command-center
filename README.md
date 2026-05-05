@@ -85,25 +85,29 @@ The Supabase schema includes:
 - `calendar_days`
 - `sales_entries`
 - `time_block_entries`
+- `weekly_confirmations`
 - `incentives`
 - `settings`
 - `saved_filters`
 
-## Time Block Migration
+## Migrations
 
-If your Supabase project already has the original schema, run this migration in the SQL Editor:
+If your Supabase project already has the original schema, run these migrations in the SQL Editor:
 
 ```text
 supabase/migrations/20260503_time_blocks.sql
+supabase/migrations/20260503_weekly_confirmations.sql
 ```
 
-It adds:
+They add:
 
 - `settings.time_blocks_config`
 - `time_block_entries`
-- RLS policy for time-block rows
+- `weekly_confirmations`
+- RLS policies for the new rows
 
 Daily totals stay synced to `sales_entries`, while detailed Morning/Afternoon/Evening progress is saved in `time_block_entries`.
+Weekly confirmations save the end-of-week review numbers for submitted, serviced, active, confirmed, and pending sales.
 
 ## Product Scope
 
@@ -123,4 +127,3 @@ This MVP includes:
 - Recharts charts
 - Supabase-backed saving
 - Vercel deployment path
-
