@@ -1571,40 +1571,63 @@ function TodaySalesCard({ command, onSaveDay }) {
   }
 
   return (
-    <section className="glass-card rounded-3xl p-3.5 md:p-6">
+    <section className="glass-card rounded-3xl p-4 md:p-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
-          <h2 className="mt-1 truncate text-xl font-black tracking-tight">{formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}</h2>
+          <h2 className="mt-1 truncate text-xl font-black tracking-tight text-slate-950 dark:text-slate-50">
+            {formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}
+          </h2>
         </div>
-        <Badge tone={statusTone(today.status)}>{today.status}</Badge>
+        <div className="shrink-0 opacity-80">
+          <Badge tone={statusTone(today.status)}>{today.status}</Badge>
+        </div>
       </div>
 
-      <div className="mt-3 rounded-2xl bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-3 ring-1 ring-slate-200">
-        <div className="flex items-center justify-between gap-3 text-sm font-black">
-          <span className="text-slate-600">Daily progress</span>
-          <span className="shrink-0 text-slate-950">{number(totalActual)} / {number(totalTarget, 1)} sales</span>
+      <div className="mt-4 rounded-3xl bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-4 ring-1 ring-slate-200 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:ring-slate-700">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-xs font-black uppercase tracking-wide text-slate-400">Daily progress</div>
+            <div className="mt-1 text-3xl font-black tracking-tight text-slate-950 dark:text-slate-50">
+              <span className={donePulse ? "text-emerald-600 drop-shadow-sm" : ""}>{number(totalActual)}</span>
+              <span className="text-slate-400"> / {number(totalTarget, 1)}</span>
+            </div>
+          </div>
+          <div className="rounded-2xl bg-white/80 px-3 py-2 text-right text-xs font-black text-slate-500 ring-1 ring-slate-200 dark:bg-slate-950/70 dark:ring-slate-700">
+            {today.dayType === "off" ? "Bonus sales count" : remaining <= 0 ? "Goal covered" : `${number(remaining, 1)} left`}
+          </div>
         </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+        <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
           <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, dailyProgress)}%` }} />
         </div>
+        <p className="mt-2 text-sm font-bold text-slate-500 dark:text-slate-400">{dayHelpText}</p>
       </div>
 
-      <p className="mt-2 text-sm font-bold text-slate-500">{dayHelpText}</p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <CompactMetric
+          label="Done"
+          value={number(totalActual)}
+          valueClassName={donePulse ? "text-emerald-600 drop-shadow-sm" : ""}
+          className={donePulse ? "ring-2 ring-emerald-200 bg-emerald-50" : ""}
+        />
+        <CompactMetric label="Goal" value={number(totalTarget, 1)} />
+      </div>
 
-      <div className="mt-3 rounded-3xl bg-slate-50 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-black uppercase tracking-wide text-slate-500">Add sales</div>
-          <button
-            type="button"
-            onClick={() => setAddSalesOpen((value) => !value)}
-            className="rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-card transition hover:bg-indigo-700 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
-          >
-            {addSalesOpen ? "Hide" : "Add Sales"}
-          </button>
-        </div>
+      <button
+        type="button"
+        onClick={() => setAddSalesOpen((value) => !value)}
+        className="mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl bg-indigo-600 px-5 py-4 text-base font-black text-white shadow-card transition hover:bg-indigo-700 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 sm:w-auto sm:min-w-48"
+      >
+        {addSalesOpen ? "Close Add Sales" : "Add Sales"}
+      </button>
+
+      <div className={`${addSalesOpen ? "mt-3" : "mt-0"} rounded-3xl ${addSalesOpen ? "bg-slate-50 p-3 dark:bg-slate-950" : ""}`}>
         {addSalesOpen && (
           <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-sm font-black uppercase tracking-wide text-slate-500">Log sales</div>
+              <div className="text-xs font-bold text-slate-400">{selectedBlock?.name || "Choose block"}</div>
+            </div>
             <div className="text-xs font-black uppercase tracking-wide text-slate-400">Block</div>
             <div className="flex flex-wrap gap-1.5">
               {visibleBlocks.map((block) => {
@@ -1685,20 +1708,10 @@ function TodaySalesCard({ command, onSaveDay }) {
         )}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <CompactMetric
-          label="Done"
-          value={number(totalActual)}
-          valueClassName={donePulse ? "text-emerald-600 drop-shadow-sm" : ""}
-          className={donePulse ? "ring-2 ring-emerald-200 bg-emerald-50" : ""}
-        />
-        <CompactMetric label="Goal" value={number(totalTarget, 1)} />
-      </div>
-
       <button
         type="button"
         onClick={() => setShowAllBlocks((value) => !value)}
-        className="mt-3 w-full rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-200 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+        className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 sm:w-auto"
       >
         {showAllBlocks ? "Hide full day" : "View full day"}
       </button>
@@ -1751,8 +1764,8 @@ function TodaySalesCard({ command, onSaveDay }) {
         })}
       </div>
       )}
-      <div className="mt-3">
-        <button type="button" onClick={clearToday} className="w-full rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700 transition hover:bg-red-100 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300">
+      <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+        <button type="button" onClick={clearToday} className="text-xs font-black text-red-600 underline-offset-4 transition hover:text-red-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300">
           Clear day
         </button>
       </div>
