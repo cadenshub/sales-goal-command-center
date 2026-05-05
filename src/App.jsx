@@ -2409,7 +2409,7 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
         description="Set a few clean milestones and let the app track progress automatically."
       />
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr] lg:items-stretch">
-        <Card title="Reward Summary" icon={Gift} compact>
+        <IncentivePanel title="Reward Summary" icon={Gift}>
           <div className="grid gap-3 sm:grid-cols-2">
             <StatTile label="Rewards" value={`${number(achievedCount)} / ${number(rewards.length)}`} detail="Achieved or claimed" />
             <StatTile
@@ -2418,9 +2418,9 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
               detail={nextReward ? `${number(Math.max(0, nextReward.target - nextReward.current), 1)} away` : "Add one to track progress"}
             />
           </div>
-        </Card>
-        <Card title="Reward Setup" icon={PlusCircle} compact>
-          <div className="flex h-full flex-col justify-between gap-4">
+        </IncentivePanel>
+        <IncentivePanel title="Reward Setup" icon={PlusCircle}>
+          <div className="flex h-full min-w-0 flex-col justify-between gap-4">
             <div>
               <p className="text-sm font-bold text-slate-500">
                 Set rewards for milestones, weekly wins, streaks, or the full season.
@@ -2435,14 +2435,14 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
               type="button"
               onClick={() => setEditingReward(newIncentive(workspace.plan.id))}
               disabled={Boolean(editingReward)}
-              className="w-full rounded-2xl bg-purple-600 px-5 py-3 text-sm font-black text-white shadow-card transition hover:bg-purple-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              className="incentive-action min-h-12 w-full rounded-2xl px-5 py-3 text-sm font-black text-white transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
             >
               Add Reward
             </button>
           </div>
-        </Card>
+        </IncentivePanel>
       </div>
-      <Card title="Saved Rewards" icon={Trophy} compact>
+      <IncentivePanel title="Saved Rewards" icon={Trophy}>
         {rewards.length ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {rewards.map((item) => (
@@ -2460,7 +2460,7 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
             Your saved rewards will show here.
           </div>
         )}
-      </Card>
+      </IncentivePanel>
       {editingReward && (
         <RewardModal
           incentive={editingReward}
@@ -2475,9 +2475,23 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
   );
 }
 
+function IncentivePanel({ title, icon: Icon, children }) {
+  return (
+    <section className="incentive-vibe rounded-[2rem] p-4 md:p-5">
+      <div className="mb-3 flex items-center gap-3">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-purple-600 text-white shadow-sm">
+          <Icon size={19} />
+        </div>
+        <h2 className="text-lg font-black text-slate-950 dark:text-slate-50">{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function RewardCard({ incentive, onEdit, onClaim, onDelete }) {
   return (
-    <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900">
+    <div className="incentive-vibe rounded-[1.5rem] p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="break-words text-xl font-black text-slate-950 dark:text-slate-50">{incentive.title}</div>
@@ -2497,7 +2511,7 @@ function RewardCard({ incentive, onEdit, onClaim, onDelete }) {
           Edit
         </button>
         {incentive.status === "achieved" && (
-          <button type="button" onClick={onClaim} className="rounded-2xl bg-purple-600 px-4 py-3 text-sm font-black text-white transition active:scale-[0.98]">
+          <button type="button" onClick={onClaim} className="incentive-action rounded-2xl px-4 py-3 text-sm font-black text-white transition active:scale-[0.98]">
             Claim
           </button>
         )}

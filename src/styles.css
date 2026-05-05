@@ -141,6 +141,71 @@ button {
   animation: pop 420ms ease;
 }
 
+.incentive-vibe {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--reward-surface, #ffffff), var(--reward-surface, #ffffff)) padding-box,
+    linear-gradient(120deg, #a855f7, #22d3ee, #10b981, #facc15, #ec4899, #a855f7) border-box;
+  background-size: 100% 100%, 220% 220%;
+  box-shadow:
+    0 18px 44px rgba(88, 28, 135, 0.12),
+    0 0 0 1px rgba(168, 85, 247, 0.08);
+  animation: incentive-border-flow 5.8s ease-in-out infinite;
+}
+
+.incentive-vibe::before {
+  position: absolute;
+  inset: -35%;
+  z-index: -1;
+  content: "";
+  background: conic-gradient(from 0deg, rgba(168, 85, 247, 0.18), rgba(34, 211, 238, 0.14), rgba(16, 185, 129, 0.16), rgba(250, 204, 21, 0.14), rgba(236, 72, 153, 0.16), rgba(168, 85, 247, 0.18));
+  filter: blur(26px);
+  opacity: 0.72;
+  animation: incentive-vibe 7s linear infinite;
+}
+
+.incentive-action {
+  background: linear-gradient(135deg, #7c3aed, #a855f7 45%, #06b6d4);
+  box-shadow: 0 14px 30px rgba(124, 58, 237, 0.26);
+}
+
+.incentive-action:hover {
+  background: linear-gradient(135deg, #6d28d9, #9333ea 45%, #0891b2);
+}
+
+@keyframes incentive-vibe {
+  100% {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes incentive-border-flow {
+  0%,
+  100% {
+    background-position: 0 0, 0% 50%;
+  }
+  50% {
+    background-position: 0 0, 100% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .incentive-vibe,
+  .incentive-vibe::before {
+    animation: none;
+  }
+}
+
+.dark .incentive-vibe {
+  --reward-surface: #111827;
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(192, 132, 252, 0.16);
+}
+
 .dark .bg-white {
   background-color: #111827;
 }
