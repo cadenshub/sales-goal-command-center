@@ -949,6 +949,7 @@ function SetupWizard({ user, onCreated, setError, error }) {
                   incentives: [
                     ...current.incentives,
                     {
+                      setupId: crypto.randomUUID(),
                       title: "",
                       description: "",
                       incentive_type: "sales_milestone",
@@ -1044,10 +1045,25 @@ function ReviewItem({ label, value }) {
 function SetupRewardEditor({ incentive, onChange, onDelete }) {
   const [more, setMore] = useState(Boolean(incentive.description || incentive.reward_value || incentive.target_date));
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-      <div className="grid gap-4 md:grid-cols-3">
+    <div className="rounded-3xl border border-purple-100 bg-white p-4 shadow-card dark:border-purple-900/60 dark:bg-slate-900 md:p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-200">
+            <Gift size={20} />
+          </div>
+          <div>
+            <div className="text-xs font-black uppercase tracking-wide text-purple-600">Reward</div>
+            <div className="text-lg font-black text-slate-950 dark:text-slate-50">
+              {String(incentive.title || "").trim() || "New reward"}
+            </div>
+          </div>
+        </div>
+        <button type="button" onClick={onDelete} className="rounded-2xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 transition active:scale-[0.98]">
+          Delete
+        </button>
+      </div>
+      <div className="grid gap-4">
         <Field label="Reward name" value={incentive.title} onChange={(v) => onChange({ ...incentive, title: v })} />
-        <Field label="Reward goal" type="number" value={incentive.target_value} onChange={(v) => onChange({ ...incentive, target_value: v })} />
         <Field
           label="Reward type"
           type="select"
@@ -1061,20 +1077,18 @@ function SetupRewardEditor({ incentive, onChange, onDelete }) {
             { value: "custom", label: "Custom" },
           ]}
         />
+        <Field label="Goal number" type="text" value={incentive.target_value} onChange={(v) => onChange({ ...incentive, target_value: v })} />
       </div>
-      <button type="button" onClick={() => setMore((value) => !value)} className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700">
+      <button type="button" onClick={() => setMore((value) => !value)} className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 transition active:scale-[0.98] dark:bg-slate-800 dark:text-slate-200">
         {more ? "Hide more options" : "More options"}
       </button>
       {more && (
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <Field label="Reward value" type="number" value={incentive.reward_value ?? ""} onChange={(v) => onChange({ ...incentive, reward_value: v })} />
+        <div className="mt-4 grid gap-4 rounded-3xl bg-purple-50/70 p-4 dark:bg-purple-950/20">
+          <Field label="Reward value" type="text" value={incentive.reward_value ?? ""} onChange={(v) => onChange({ ...incentive, reward_value: v })} />
           <Field label="Target date" type="date" value={incentive.target_date || ""} onChange={(v) => onChange({ ...incentive, target_date: v })} />
-          <Field label="Description" value={incentive.description || ""} onChange={(v) => onChange({ ...incentive, description: v })} />
+          <Field label="Description" type="textarea" value={incentive.description || ""} onChange={(v) => onChange({ ...incentive, description: v })} />
         </div>
       )}
-      <button type="button" onClick={onDelete} className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-700">
-        Remove reward
-      </button>
     </div>
   );
 }
@@ -1142,10 +1156,12 @@ function normalizeSetupRewards(incentives) {
     const targetBlank = isBlank(item.target_value);
     const hasAnyValue = title || !targetBlank || String(item.description || "").trim() || !isBlank(item.reward_value) || item.target_date;
     if (!hasAnyValue) return;
+    const beforeErrorCount = errors.length;
     if (!title) errors.push(`Reward ${index + 1}: reward name is required.`);
     if (targetBlank) errors.push(`Reward ${index + 1}: reward goal is required.`);
-    if (!targetBlank) optionalNonNegativeNumber(errors, item.target_value, `Reward ${index + 1} goal`);
+    if (!targetBlank) requirePositiveNumber(errors, item.target_value, `Reward ${index + 1} goal`);
     if (!isBlank(item.reward_value)) optionalNonNegativeNumber(errors, item.reward_value, `Reward ${index + 1} value`);
+    if (errors.length > beforeErrorCount) return;
     rewards.push({
       title,
       description: String(item.description || "").trim(),
@@ -1165,19 +1181,28 @@ function isBlank(value) {
 }
 
 function requiredNumber(value) {
-  return Number(value);
+  return parseNumericInput(value);
 }
 
 function optionalNumber(value) {
-  return isBlank(value) ? null : Number(value);
+  return isBlank(value) ? null : parseNumericInput(value);
 }
 
 function requirePositiveNumber(errors, value, label) {
-  if (isBlank(value) || !Number.isFinite(Number(value)) || Number(value) <= 0) errors.push(`${label} must be greater than 0.`);
+  const number = parseNumericInput(value);
+  if (number === null || !Number.isFinite(number) || number <= 0) errors.push(`${label} must be greater than 0.`);
 }
 
 function optionalNonNegativeNumber(errors, value, label) {
-  if (!isBlank(value) && (!Number.isFinite(Number(value)) || Number(value) < 0)) errors.push(`${label} must be 0 or higher.`);
+  const number = parseNumericInput(value);
+  if (!isBlank(value) && (!Number.isFinite(number) || number < 0)) errors.push(`${label} must be 0 or higher.`);
+}
+
+function parseNumericInput(value) {
+  if (isBlank(value)) return null;
+  const normalized = String(value).trim().replace(/[$,\s]/g, "");
+  if (!normalized) return null;
+  return Number(normalized);
 }
 
 function Dashboard({ command, setPage, onSaveDay }) {
@@ -2739,7 +2764,7 @@ function CompactMetric({ label, value, className = "", valueClassName = "" }) {
 function EditableList({ items, empty, render }) {
   return (
     <div className="mt-5 grid gap-3">
-      {items.length ? items.map((item, index) => <div key={item.id || index}>{render(item, index)}</div>) : <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">{empty}</div>}
+      {items.length ? items.map((item, index) => <div key={item.id || item.setupId || index}>{render(item, index)}</div>) : <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">{empty}</div>}
     </div>
   );
 }
