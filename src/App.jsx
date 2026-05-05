@@ -1379,7 +1379,7 @@ function RewardSummary({ command, setPage }) {
       ) : (
         <div className="grid gap-3">
           <p className="text-sm font-bold text-slate-500">No reward yet. Add one to make the next milestone more fun.</p>
-          <button type="button" onClick={() => setPage("incentives")} className="incentive-action rounded-2xl px-4 py-3 font-black text-white transition active:scale-[0.98]">
+          <button type="button" onClick={() => setPage("incentives")} className="rounded-2xl bg-purple-600 px-4 py-3 font-black text-white transition hover:bg-purple-700 active:scale-[0.98]">
             Add reward
           </button>
         </div>
@@ -2409,7 +2409,7 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
         description="Set a few clean milestones and let the app track progress automatically."
       />
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr] lg:items-stretch">
-        <IncentivePanel title="Reward Summary" icon={Gift}>
+        <Card title="Reward Summary" icon={Gift} compact className="incentive-outline">
           <div className="grid gap-3 sm:grid-cols-2">
             <StatTile label="Rewards" value={`${number(achievedCount)} / ${number(rewards.length)}`} detail="Achieved or claimed" />
             <StatTile
@@ -2418,9 +2418,9 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
               detail={nextReward ? `${number(Math.max(0, nextReward.target - nextReward.current), 1)} away` : "Add one to track progress"}
             />
           </div>
-        </IncentivePanel>
-        <IncentivePanel title="Reward Setup" icon={PlusCircle}>
-          <div className="flex h-full min-w-0 flex-col justify-between gap-4">
+        </Card>
+        <Card title="Reward Setup" icon={PlusCircle} compact className="incentive-outline">
+          <div className="flex h-full min-w-0 flex-col gap-4">
             <div>
               <p className="text-sm font-bold text-slate-500">
                 Set rewards for milestones, weekly wins, streaks, or the full season.
@@ -2431,18 +2431,20 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => setEditingReward(newIncentive(workspace.plan.id))}
-              disabled={Boolean(editingReward)}
-              className="incentive-action mx-auto min-h-12 w-full max-w-xs rounded-2xl px-5 py-3 text-sm font-black text-white transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Add Reward
-            </button>
+            <div className="mt-auto flex w-full justify-center pt-1">
+              <button
+                type="button"
+                onClick={() => setEditingReward(newIncentive(workspace.plan.id))}
+                disabled={Boolean(editingReward)}
+                className="min-h-12 w-full max-w-xs rounded-2xl bg-purple-600 px-5 py-3 text-sm font-black text-white shadow-card transition hover:bg-purple-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Add Reward
+              </button>
+            </div>
           </div>
-        </IncentivePanel>
+        </Card>
       </div>
-      <IncentivePanel title="Saved Rewards" icon={Trophy}>
+      <Card title="Saved Rewards" icon={Trophy} compact className="incentive-outline">
         {rewards.length ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {rewards.map((item) => (
@@ -2460,7 +2462,7 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
             Your saved rewards will show here.
           </div>
         )}
-      </IncentivePanel>
+      </Card>
       {editingReward && (
         <RewardModal
           incentive={editingReward}
@@ -2511,7 +2513,7 @@ function RewardCard({ incentive, onEdit, onClaim, onDelete }) {
           Edit
         </button>
         {incentive.status === "achieved" && (
-          <button type="button" onClick={onClaim} className="incentive-action rounded-2xl px-4 py-3 text-sm font-black text-white transition active:scale-[0.98]">
+          <button type="button" onClick={onClaim} className="rounded-2xl bg-purple-600 px-4 py-3 text-sm font-black text-white transition hover:bg-purple-700 active:scale-[0.98]">
             Claim
           </button>
         )}
@@ -3009,9 +3011,9 @@ function CoachCard({ command }) {
   );
 }
 
-function Card({ title, icon: Icon, children, compact = false }) {
+function Card({ title, icon: Icon, children, compact = false, className = "" }) {
   return (
-    <section className={`app-card ${compact ? "p-4" : "p-5"}`}>
+    <section className={`app-card ${compact ? "p-4" : "p-5"} ${className}`}>
       <div className={`${compact ? "mb-3" : "mb-5"} flex items-center gap-3`}>
         <div className={`${compact ? "h-10 w-10" : "h-11 w-11"} app-icon`}>
           <Icon size={20} />
