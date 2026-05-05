@@ -279,7 +279,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <aside className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 px-2 py-2 backdrop-blur lg:bottom-auto lg:right-auto lg:top-0 lg:h-screen lg:w-72 lg:border-r lg:border-t-0 lg:px-5 lg:py-6">
+      <aside className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 px-2 py-2 backdrop-blur md:px-6 lg:bottom-auto lg:right-auto lg:top-0 lg:h-screen lg:w-72 lg:border-r lg:border-t-0 lg:px-5 lg:py-6">
         <div className="mb-8 hidden items-center gap-3 lg:flex">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-indigo-600 text-white shadow-glow">
             <Target size={24} />
@@ -289,7 +289,7 @@ export default function App() {
             <div className="text-sm font-semibold text-slate-500">Command Center</div>
           </div>
         </div>
-        <nav className="grid grid-cols-6 gap-1 lg:grid-cols-1 lg:gap-2">
+        <nav className="mx-auto grid max-w-3xl grid-cols-6 gap-1 lg:mx-0 lg:max-w-none lg:grid-cols-1 lg:gap-2">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -325,7 +325,7 @@ export default function App() {
       </aside>
 
       <main className="pb-24 lg:ml-72 lg:pb-0">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 px-4 py-4 backdrop-blur xl:px-8">
+        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 px-4 py-4 backdrop-blur md:px-6 xl:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-sm font-bold text-slate-500">{formatDate(command.today, { weekday: "long" })}</div>
@@ -346,7 +346,7 @@ export default function App() {
           {error && <div className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>}
         </header>
 
-        <div className="mx-auto max-w-7xl px-4 py-6 xl:px-8">
+        <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-7 xl:px-8">
           {page === "dashboard" && <Dashboard command={command} setPage={setPage} onSaveDay={saveDay} />}
           {page === "calendar" && <CalendarPage command={command} onSelectDay={setSelectedDay} onSaveDay={saveDay} />}
           {page === "weekly" && (
@@ -840,7 +840,7 @@ function SetupWizard({ user, onCreated, setError, error }) {
   }
 
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-4 py-6 md:py-8">
+    <div className="mx-auto min-h-screen max-w-5xl px-4 py-6 md:px-6 md:py-8">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-sm font-black uppercase tracking-wide text-indigo-600">First-time setup</div>
@@ -879,7 +879,7 @@ function SetupWizard({ user, onCreated, setError, error }) {
         </div>
       )}
 
-      <div className="glass-card rounded-[2rem] p-5 md:p-7">
+      <div className="glass-card rounded-[2rem] p-5 md:p-7 lg:p-8">
         {step === 0 && (
           <SetupStep title="Plan" icon={Target}>
             <div className="grid gap-4 md:grid-cols-2">
@@ -1126,7 +1126,7 @@ function SetupBlackoutCalendar({ plan, settings, calendarDays, onToggleDate }) {
                 type="button"
                 onClick={() => !outsideRange && onToggleDate(date)}
                 disabled={outsideRange}
-                className={`min-h-12 border-r border-t border-slate-200 p-1.5 text-left text-sm font-black transition last:border-r-0 active:scale-[0.98] dark:border-slate-700 ${
+                className={`min-h-12 border-r border-t border-slate-200 p-1.5 text-left text-sm font-black transition last:border-r-0 active:scale-[0.98] dark:border-slate-700 md:min-h-14 md:p-2 ${
                   blackout
                     ? "bg-slate-700 text-white hover:bg-slate-600"
                     : !inMonth
@@ -1353,11 +1353,11 @@ function parseNumericInput(value) {
 function Dashboard({ command, setPage, onSaveDay }) {
   const completion = command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0;
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-4 md:gap-5">
       <CoachSummary command={command} />
       <TodaySalesCard command={command} onSaveDay={onSaveDay} />
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-2">
         <CompactWeekCard command={command} />
         <Card title="Season" icon={Target} compact>
           <div className="flex items-start justify-between gap-4">
@@ -1391,7 +1391,7 @@ function CoachSummary({ command }) {
         ? `You need ${number(command.salesNeededToday, 1)} sales today to stay on pace.`
         : rewardMessage;
   return (
-    <section className="glass-card rounded-3xl p-4">
+    <section className="glass-card rounded-3xl p-4 md:p-5">
       <div className="flex items-start gap-3">
         <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-slate-950 text-white">
           <Sparkles size={18} />
@@ -1619,7 +1619,7 @@ function TodaySalesCard({ command, onSaveDay }) {
   }
 
   return (
-    <section className="glass-card rounded-3xl p-3.5 md:p-5">
+    <section className="glass-card rounded-3xl p-3.5 md:p-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
@@ -1901,8 +1901,8 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
   }
 
   return (
-    <div className="grid gap-4">
-      <section className="glass-card rounded-3xl p-4">
+    <div className="mx-auto grid max-w-6xl gap-4 md:gap-5">
+      <section className="glass-card rounded-3xl p-4 md:p-5">
         <div className="flex items-center justify-between gap-3">
           <button
             type="button"
@@ -1996,7 +1996,7 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
                         key={date}
                         type="button"
                         onClick={() => pickDay(date)}
-                        className={`min-h-[4.4rem] border-r border-slate-200 p-2 text-left transition last:border-r-0 hover:bg-indigo-50/60 active:scale-[0.98] dark:border-slate-700 ${
+                        className={`min-h-[4.4rem] border-r border-slate-200 p-2 text-left transition last:border-r-0 hover:bg-indigo-50/60 active:scale-[0.98] dark:border-slate-700 md:min-h-[5.6rem] md:p-3 ${
                           metGoal
                             ? "border-emerald-400 bg-emerald-500 text-white shadow-inner hover:bg-emerald-600 dark:border-emerald-300 dark:bg-emerald-500 dark:hover:bg-emerald-400"
                             : nonCountingCurrentMonth
@@ -2112,7 +2112,7 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
   const [showWeekEditor, setShowWeekEditor] = useState(false);
   const stats = statsPageSummary(command, currentWeek);
   return (
-    <div className="grid gap-5">
+    <div className="mx-auto grid max-w-6xl gap-5">
       <StatsTotals stats={stats} />
       <SeasonStatsProgress command={command} />
       <WeeklyOverviewGraph weeks={command.weeks} />
@@ -2143,7 +2143,7 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
 function StatsTotals({ stats }) {
   return (
     <Card title="Sales Stats" icon={BarChart3}>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
         <StatTile label="Week Total" value={`${number(stats.week.actual)} / ${number(stats.week.goal)}`} detail={`${number(stats.week.progress, 0)}% of goal`} />
         <StatTile label="Month Total" value={number(stats.month.actual)} detail={stats.month.goal ? `${number(stats.month.goal)} monthly goal` : "Current month sales"} />
         <StatTile label="Season Total" value={`${number(stats.season.actual)} / ${number(stats.season.goal)}`} detail={`${number(stats.season.progress, 0)}% complete`} />
@@ -2179,7 +2179,7 @@ function WeeklyOverviewGraph({ weeks }) {
           Log more sales to see your weekly trend.
         </div>
       ) : (
-        <div className="h-64 sm:h-72">
+        <div className="h-64 sm:h-72 md:h-80">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -2366,7 +2366,7 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
   const [editingReward, setEditingReward] = useState(null);
   const rewards = dedupeById(command.incentives).filter((item) => String(item.title || "").trim());
   return (
-    <div className="grid gap-5">
+    <div className="mx-auto grid max-w-6xl gap-5">
       <Card title="Rewards" icon={Gift}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="max-w-2xl text-sm font-bold text-slate-500">
@@ -2382,7 +2382,7 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
           </div>
         )}
       </Card>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2">
         {rewards.map((item) => (
           <RewardCard
             key={item.id}
@@ -2471,7 +2471,7 @@ function RewardModal({ incentive, onSave, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/45 sm:place-items-center">
-      <form onSubmit={submit} className="max-h-[92vh] w-full overflow-auto rounded-t-[2rem] bg-white p-5 shadow-glow sm:max-w-xl sm:rounded-[2rem]">
+      <form onSubmit={submit} className="max-h-[92vh] w-full overflow-auto rounded-t-[2rem] bg-white p-5 shadow-glow sm:max-w-xl sm:rounded-[2rem] md:max-w-2xl md:p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-black uppercase tracking-wide text-purple-600">Reward</div>
@@ -2567,7 +2567,7 @@ function SettingsPage({ user, workspace, saveSettings, savePlan, onSendPasswordR
   }
 
   return (
-    <div className="grid gap-4">
+    <div className="mx-auto grid max-w-6xl gap-4">
       <SettingsBlock title="Plan basics" description="Your main plan targets and default weekly pace." icon={Target}>
         <div className="grid gap-3 sm:grid-cols-2">
           <SettingsSummary label="Plan name" value={workspace.plan.name} />
@@ -2610,7 +2610,7 @@ function SettingsPage({ user, workspace, saveSettings, savePlan, onSendPasswordR
       <SettingsBlock title="Time blocks" description="Edit how today's goal is split across the day." icon={Clock}>
         <div className="grid gap-3">
           {blocks.map((block) => (
-            <div key={block.key} className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950 md:grid-cols-[1fr_0.8fr_0.8fr_0.7fr_auto]">
+            <div key={block.key} className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950 xl:grid-cols-[1fr_0.8fr_0.8fr_0.7fr_auto]">
               <Field label="Block name" value={block.name} onChange={(v) => updateBlock(block.key, { name: v })} />
               <Field label="Start time" type="time" value={block.start_time} onChange={(v) => updateBlock(block.key, { start_time: v })} />
               <Field label="End time" type="time" value={block.end_time} onChange={(v) => updateBlock(block.key, { end_time: v })} />
@@ -2790,7 +2790,7 @@ function DayEditor({ day, command, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/45 px-3 py-3 sm:place-items-center">
-      <div className="max-h-[92vh] w-full max-w-md overflow-auto rounded-[2rem] bg-white p-5 shadow-glow">
+      <div className="max-h-[92vh] w-full max-w-md overflow-auto rounded-[2rem] bg-white p-5 shadow-glow md:max-w-2xl md:p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Edit day</div>
