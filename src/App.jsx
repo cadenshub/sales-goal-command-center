@@ -2408,7 +2408,7 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
         title="Rewards"
         description="Set a few clean milestones and let the app track progress automatically."
       />
-      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr] lg:items-stretch">
+      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
         <Card title="Reward Summary" icon={Gift} compact className="incentive-outline">
           <div className="grid gap-3 sm:grid-cols-2">
             <StatTile label="Rewards" value={`${number(achievedCount)} / ${number(rewards.length)}`} detail="Achieved or claimed" />
@@ -2420,23 +2420,21 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
           </div>
         </Card>
         <Card title="Reward Setup" icon={PlusCircle} compact className="incentive-outline">
-          <div className="flex h-full min-w-0 flex-col gap-4">
-            <div>
-              <p className="text-sm font-bold text-slate-500">
-                Set rewards for milestones, weekly wins, streaks, or the full season.
-              </p>
-              {!rewards.length && (
-                <div className="mt-4 rounded-3xl bg-purple-50 p-4 text-sm font-bold text-purple-800 dark:bg-purple-950/30 dark:text-purple-100">
-                  No rewards yet. Add your first reward to make hitting your goals more fun.
-                </div>
-              )}
-            </div>
-            <div className="mt-auto flex w-full justify-center pt-1">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-500">
+              Set rewards for milestones, weekly wins, streaks, or the full season.
+            </p>
+            {!rewards.length && (
+              <div className="mt-4 rounded-3xl bg-purple-50 p-4 text-sm font-bold text-purple-800 dark:bg-purple-950/30 dark:text-purple-100">
+                No rewards yet. Add your first reward to make hitting your goals more fun.
+              </div>
+            )}
+            <div className="mt-4 rounded-3xl bg-purple-50/70 p-2 ring-1 ring-purple-100 dark:bg-purple-950/20 dark:ring-purple-800/50">
               <button
                 type="button"
                 onClick={() => setEditingReward(newIncentive(workspace.plan.id))}
                 disabled={Boolean(editingReward)}
-                className="min-h-12 w-full max-w-xs rounded-2xl bg-purple-600 px-5 py-3 text-sm font-black text-white shadow-card transition hover:bg-purple-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-12 w-full rounded-2xl bg-purple-600 px-5 py-3 text-sm font-black text-white shadow-card transition hover:bg-purple-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Add Reward
               </button>
