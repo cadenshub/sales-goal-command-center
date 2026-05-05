@@ -35,7 +35,6 @@ import {
 import { isSupabaseConfigured } from "./lib/supabase";
 import {
   createWorkspace,
-  deleteGoalPeriod,
   deleteIncentive,
   deleteWeek,
   ensureProfile,
@@ -50,7 +49,6 @@ import {
   signUp,
   updatePlan,
   upsertCalendarDay,
-  upsertGoalPeriod,
   upsertIncentive,
   upsertSalesEntry,
   upsertSettings,
@@ -363,11 +361,6 @@ export default function App() {
               workspace={workspace}
               command={command}
               savePlan={savePlan}
-              saveSettings={saveSettings}
-              saveWeek={saveWeek}
-              removeWeek={removeWeek}
-              saveGoalPeriod={saveGoalPeriod}
-              removeGoalPeriod={removeGoalPeriod}
             />
           )}
           {page === "incentives" && (
@@ -544,36 +537,6 @@ export default function App() {
     await saveAndPatch(
       (current) => ({ ...current, weeks: current.weeks.filter((week) => week.id !== id) }),
       () => deleteWeek(id),
-    );
-  }
-
-  async function saveGoalPeriod(period) {
-    const payload = {
-      ...(period.id ? { id: period.id } : {}),
-      plan_id: workspace.plan.id,
-      title: period.title,
-      period_type: period.period_type,
-      start_date: period.start_date,
-      end_date: period.end_date,
-      target_sales: Number(period.target_sales || 0),
-      priority: period.priority || "normal",
-      active: period.active !== false,
-      notes: period.notes || "",
-    };
-    await saveAndPatch(
-      (current) => ({ ...current, goalPeriods: upsertLocalById(current.goalPeriods, payload) }),
-      async () => {
-        const saved = await upsertGoalPeriod(payload);
-        setWorkspace((current) => ({ ...current, goalPeriods: upsertLocalById(current.goalPeriods, saved) }));
-      },
-    );
-  }
-
-  async function removeGoalPeriod(id) {
-    if (!window.confirm("Delete this custom goal period?")) return;
-    await saveAndPatch(
-      (current) => ({ ...current, goalPeriods: current.goalPeriods.filter((period) => period.id !== id) }),
-      () => deleteGoalPeriod(id),
     );
   }
 
@@ -2260,104 +2223,121 @@ function weeklyGraphData(weeks) {
   }));
 }
 
-function GoalsPage({ workspace, command, savePlan, saveSettings, saveWeek, removeWeek, saveGoalPeriod, removeGoalPeriod }) {
+function GoalsPage({ workspace, command, savePlan }) {
   const [draft, setDraft] = useState(workspace.plan);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const preview = buildDatePreview(command, draft);
 
-  useEffect(() => setDraft(workspace.plan), [workspace.plan]);
+  useEffect(() => {
+    setDraft(workspace.plan);
+    setEditing(false);
+  }, [workspace.plan]);
+
+  function cancelEdit() {
+    setDraft(workspace.plan);
+    setEditing(false);
+  }
+
+  async function applyChanges() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await savePlan(normalizePlanDraft(draft));
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <div className="grid gap-5">
-      <Card title="Plan and date ranges" icon={Target}>
-        <div className="grid gap-4 md:grid-cols-3">
-          <Field label="Plan name" value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} />
-          <Field label="Season start" type="date" value={draft.start_date} onChange={(v) => setDraft({ ...draft, start_date: v })} />
-          <Field label="Season end" type="date" value={draft.end_date} onChange={(v) => setDraft({ ...draft, end_date: v })} />
-          <Field label="Tracking start" type="date" value={draft.tracking_start_date} onChange={(v) => setDraft({ ...draft, tracking_start_date: v })} />
-          <Field label="Season goal" type="number" value={draft.total_goal} onChange={(v) => setDraft({ ...draft, total_goal: v })} />
-          <Field label="Starting sales" type="number" value={draft.starting_sales} onChange={(v) => setDraft({ ...draft, starting_sales: v })} />
-          <div className="grid gap-2">
+    <div className="mx-auto grid max-w-6xl gap-4">
+      <SettingsBlock title="Sales Plan" description="Review the core goals and dates for this season." icon={Target}>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-bold text-slate-500">
+            {editing ? "Edit carefully. These numbers recalculate your plan." : "Locked summary. Tap Edit Goals to make changes."}
+          </div>
+          <button
+            type="button"
+            onClick={editing ? cancelEdit : () => setEditing(true)}
+            disabled={saving}
+            className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {editing ? "Cancel" : "Edit Goals"}
+          </button>
+        </div>
+
+        {editing ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <Field label="Plan name" value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} />
+            <Field label="Season goal" type="number" value={draft.total_goal} onChange={(v) => setDraft({ ...draft, total_goal: v })} />
+            <Field label="Starting sales" type="number" value={draft.starting_sales} onChange={(v) => setDraft({ ...draft, starting_sales: v })} />
             <Field label="Default weekly goal" type="number" value={draft.default_weekly_goal} onChange={(v) => setDraft({ ...draft, default_weekly_goal: v })} />
-            <p className="text-xs font-bold text-slate-500">Used for weeks without a custom goal.</p>
+            <Field label="Max realistic sales/day" type="number" value={draft.max_sales_per_day} onChange={(v) => setDraft({ ...draft, max_sales_per_day: v })} />
+            <Field label="Season start" type="date" value={draft.start_date} onChange={(v) => setDraft({ ...draft, start_date: v })} />
+            <Field label="Season end" type="date" value={draft.end_date} onChange={(v) => setDraft({ ...draft, end_date: v })} />
+            <Field label="Tracking start" type="date" value={draft.tracking_start_date} onChange={(v) => setDraft({ ...draft, tracking_start_date: v })} />
+            <Field
+              label="Catch-up strategy"
+              type="select"
+              value={draft.catchup_strategy}
+              onChange={(v) => setDraft({ ...draft, catchup_strategy: v })}
+              options={[
+                { value: "balanced", label: "Spread evenly" },
+                { value: "front_loaded", label: "Prioritize certain days" },
+                { value: "weekly_first", label: "Weekly goals matter more" },
+                { value: "season_first", label: "Season goal matters more" },
+              ]}
+            />
+            <div className="md:col-span-2 xl:col-span-3">
+              <Toggle label="Include outside-range sales in calculations" checked={draft.include_outside_range_sales} onChange={(v) => setDraft({ ...draft, include_outside_range_sales: v })} />
+            </div>
           </div>
-          <Field label="Max realistic sales/day" type="number" value={draft.max_sales_per_day} onChange={(v) => setDraft({ ...draft, max_sales_per_day: v })} />
-          <Field
-            label="Catch-up strategy"
-            type="select"
-            value={draft.catchup_strategy}
-            onChange={(v) => setDraft({ ...draft, catchup_strategy: v })}
-            options={[
-              { value: "balanced", label: "Spread evenly" },
-              { value: "front_loaded", label: "Prioritize certain days" },
-              { value: "weekly_first", label: "Weekly goals matter more" },
-              { value: "season_first", label: "Season goal matters more" },
-            ]}
-          />
-        </div>
-        <Toggle label="Include outside-range sales in calculations" checked={draft.include_outside_range_sales} onChange={(v) => setDraft({ ...draft, include_outside_range_sales: v })} />
-        <div className={`mt-5 rounded-3xl p-4 ${preview.warning ? "bg-amber-50 text-amber-800" : "bg-blue-50 text-blue-800"}`}>
-          <div className="flex items-center gap-2 font-black">
-            {preview.warning ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />} Preview
-          </div>
-          <p className="mt-1 text-sm font-semibold">{preview.message}</p>
-        </div>
-        <button type="button" onClick={() => savePlan(normalizePlanDraft(draft))} className="mt-5 rounded-2xl bg-slate-950 px-5 py-3 font-black text-white">
-          Apply plan changes
-        </button>
-        {command.outsideRangeEntries.length > 0 && (
-          <div className="mt-4 rounded-3xl bg-red-50 p-4 text-sm font-bold text-red-700">
-            {command.outsideRangeEntries.length} sales entries fall outside the active date range. They are kept saved and can be included or excluded above.
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <SettingsSummary label="Plan name" value={workspace.plan.name} />
+            <SettingsSummary label="Season goal" value={`${number(workspace.plan.total_goal)} sales`} />
+            <SettingsSummary label="Starting sales" value={number(workspace.plan.starting_sales)} />
+            <SettingsSummary label="Default weekly goal" value={`${number(workspace.plan.default_weekly_goal)} sales`} />
+            <SettingsSummary label="Max sales/day" value={number(workspace.plan.max_sales_per_day, 1)} />
+            <SettingsSummary label="Season start" value={formatDate(workspace.plan.start_date)} />
+            <SettingsSummary label="Season end" value={formatDate(workspace.plan.end_date)} />
+            <SettingsSummary label="Tracking start" value={formatDate(workspace.plan.tracking_start_date)} />
+            <SettingsSummary label="Catch-up strategy" value={String(workspace.plan.catchup_strategy || "balanced").replaceAll("_", " ")} />
           </div>
         )}
-      </Card>
 
-      <Card title="Workday assumptions" icon={Calendar}>
-        <WeekdayPicker value={workspace.settings.normal_workdays} onChange={(normal_workdays) => saveSettings({ normal_workdays })} />
-        <div className="mt-4 max-w-sm">
-          <Field
-            label="Default week starts on"
-            type="select"
-            value={workspace.settings.default_week_start_day}
-            onChange={(v) => saveSettings({ default_week_start_day: Number(v) })}
-            options={weekdayOptions}
-          />
+        {editing && (
+          <>
+            <div className={`mt-5 rounded-3xl p-4 ${preview.warning ? "bg-amber-50 text-amber-800" : "bg-blue-50 text-blue-800"}`}>
+              <div className="flex items-center gap-2 font-black">
+                {preview.warning ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />} Preview
+              </div>
+              <p className="mt-1 text-sm font-semibold">{preview.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={applyChanges}
+              disabled={saving}
+              className="mt-5 w-full rounded-2xl bg-emerald-600 px-5 py-3 font-black text-white transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {saving ? "Saving..." : "Save changes"}
+            </button>
+          </>
+        )}
+
+        {command.outsideRangeEntries.length > 0 && (
+          <div className="mt-4 rounded-3xl bg-red-50 p-4 text-sm font-bold text-red-700">
+            {command.outsideRangeEntries.length} sales entries fall outside the active date range. They are kept saved and follow your outside-range setting.
+          </div>
+        )}
+      </SettingsBlock>
+
+      <SettingsBlock title="Coach" description="Plan optimization will live here later." icon={Sparkles}>
+        <div className="rounded-3xl bg-indigo-50 p-4 text-sm font-bold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200">
+          Future coach tools will help rebalance goals, workdays, and catch-up plans from this page.
         </div>
-      </Card>
-
-      <Card title="Weekly goal overrides" icon={BarChart3}>
-        <button type="button" onClick={() => saveWeek(newWeek(command))} className="mb-4 rounded-2xl bg-indigo-600 px-4 py-3 font-black text-white">
-          Add weekly override
-        </button>
-        <EditableList
-          items={workspace.weeks}
-          empty="No custom weekly goals yet."
-          render={(week) => (
-            <WeekMiniEditor
-              week={{ ...week, weekly_goal: getEffectiveWeeklyGoal(week, command.plan) }}
-              defaultWeeklyGoal={command.plan.default_weekly_goal}
-              onChange={saveWeek}
-              onDelete={() => removeWeek(week.id)}
-            />
-          )}
-        />
-      </Card>
-
-      <Card title="Sprint and custom goal periods" icon={Flame}>
-        <button type="button" onClick={() => saveGoalPeriod(newGoalPeriod(workspace.plan.id))} className="mb-4 rounded-2xl bg-emerald-600 px-4 py-3 font-black text-white">
-          Add sprint goal
-        </button>
-        <EditableList
-          items={workspace.goalPeriods}
-          empty="No sprint goals yet."
-          render={(period) => (
-            <GoalPeriodMiniEditor
-              period={period}
-              onChange={saveGoalPeriod}
-              onDelete={() => removeGoalPeriod(period.id)}
-            />
-          )}
-        />
-      </Card>
+      </SettingsBlock>
     </div>
   );
 }
@@ -3318,34 +3298,6 @@ function normalizePlanDraft(draft) {
     max_sales_per_day: Number(draft.max_sales_per_day || 0),
     catchup_strategy: draft.catchup_strategy,
     include_outside_range_sales: draft.include_outside_range_sales,
-  };
-}
-
-function newWeek(command) {
-  const start = command.currentWeekStart;
-  return {
-    plan_id: command.plan.id,
-    week_start: start,
-    week_end: command.currentWeekEnd,
-    weekly_goal: command.plan.default_weekly_goal,
-    custom_goal_enabled: true,
-    custom_range_enabled: true,
-    range_label: "Custom week",
-    notes: "",
-  };
-}
-
-function newGoalPeriod(planId) {
-  return {
-    plan_id: planId,
-    title: "New sprint",
-    period_type: "sprint",
-    start_date: todayISO(),
-    end_date: toISO(addDays(new Date(), 13)),
-    target_sales: 20,
-    priority: "normal",
-    active: true,
-    notes: "",
   };
 }
 
