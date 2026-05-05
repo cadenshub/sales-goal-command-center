@@ -43,6 +43,8 @@ import {
   loadCriticalWorkspace,
   loadOptionalWorkspace,
   onAuthChange,
+  resetPlanStats,
+  sendPasswordResetEmail,
   signIn,
   signOut,
   signUp,
@@ -371,7 +373,16 @@ export default function App() {
           {page === "incentives" && (
             <IncentivesPage command={command} workspace={workspace} saveIncentive={saveIncentive} removeIncentive={removeIncentive} />
           )}
-          {page === "settings" && <SettingsPage user={session.user} workspace={workspace} saveSettings={saveSettings} savePlan={savePlan} />}
+          {page === "settings" && (
+            <SettingsPage
+              user={session.user}
+              workspace={workspace}
+              saveSettings={saveSettings}
+              savePlan={savePlan}
+              onSendPasswordReset={sendResetPassword}
+              onResetStats={resetStats}
+            />
+          )}
         </div>
       </main>
 
@@ -401,6 +412,23 @@ export default function App() {
     await saveAndPatch(
       (current) => ({ ...current, settings: next }),
       () => upsertSettings(next),
+    );
+  }
+
+  async function sendResetPassword() {
+    const email = session?.user?.email;
+    if (!email) throw new Error("No email is available for this account.");
+    await sendPasswordResetEmail(email, window.location.origin);
+  }
+
+  async function resetStats() {
+    return saveAndPatch(
+      (current) => ({
+        ...current,
+        salesEntries: [],
+        timeBlockEntries: [],
+      }),
+      () => resetPlanStats(workspace.plan.id),
     );
   }
 
@@ -2489,14 +2517,53 @@ function RewardModal({ incentive, onSave, onClose }) {
   );
 }
 
-function SettingsPage({ user, workspace, saveSettings, savePlan }) {
+function SettingsPage({ user, workspace, saveSettings, savePlan, onSendPasswordReset, onResetStats }) {
   const [blocks, setBlocks] = useState(normalizeTimeBlocks(workspace.settings.time_blocks_config));
   const [defaultWeeklyGoal, setDefaultWeeklyGoal] = useState(workspace.plan.default_weekly_goal || 0);
+  const [passwordStatus, setPasswordStatus] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [sendingPassword, setSendingPassword] = useState(false);
+  const [resetStatus, setResetStatus] = useState("");
+  const [resetError, setResetError] = useState("");
+  const [confirmResetStats, setConfirmResetStats] = useState(false);
+  const [resettingStats, setResettingStats] = useState(false);
   useEffect(() => setBlocks(normalizeTimeBlocks(workspace.settings.time_blocks_config)), [workspace.settings.time_blocks_config]);
   useEffect(() => setDefaultWeeklyGoal(workspace.plan.default_weekly_goal || 0), [workspace.plan.default_weekly_goal]);
 
   function updateBlock(key, changes) {
     setBlocks((current) => current.map((block) => (block.key === key ? { ...block, ...changes } : block)));
+  }
+
+  async function sendPasswordReset() {
+    if (!user.email || sendingPassword) return;
+    setSendingPassword(true);
+    setPasswordStatus("");
+    setPasswordError("");
+    try {
+      await onSendPasswordReset();
+      setPasswordStatus("Password reset email sent.");
+    } catch (err) {
+      setPasswordError(passwordResetMessage(err));
+    } finally {
+      setSendingPassword(false);
+    }
+  }
+
+  async function confirmReset() {
+    if (resettingStats) return;
+    setResettingStats(true);
+    setResetStatus("");
+    setResetError("");
+    try {
+      const ok = await onResetStats();
+      if (!ok) throw new Error("Could not reset stats. Try again.");
+      setResetStatus("Stats reset. Your plan, schedule, blackout dates, and rewards are still here.");
+      setConfirmResetStats(false);
+    } catch (err) {
+      setResetError(err.message);
+    } finally {
+      setResettingStats(false);
+    }
   }
 
   return (
@@ -2579,15 +2646,78 @@ function SettingsPage({ user, workspace, saveSettings, savePlan }) {
         />
       </SettingsBlock>
 
-      <SettingsBlock title="Account" description="Your signed-in account for this command center." icon={Settings}>
+      <SettingsBlock title="Account Safety" description="Send a secure password reset email for this account." icon={Settings}>
         <SettingsSummary label="Email" value={user.email} />
+        {user.email ? (
+          <button
+            type="button"
+            onClick={sendPasswordReset}
+            disabled={sendingPassword}
+            className="mt-4 w-full rounded-2xl bg-indigo-600 px-5 py-3 font-black text-white transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            {sendingPassword ? "Sending..." : "Send password reset email"}
+          </button>
+        ) : (
+          <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800">No email is available for this account.</div>
+        )}
+        {passwordStatus && <div className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-700">{passwordStatus}</div>}
+        {passwordError && <div className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{passwordError}</div>}
       </SettingsBlock>
 
       <SettingsBlock title="Danger Zone" description="Destructive controls are intentionally separated." icon={AlertTriangle} tone="danger">
-        <div className="rounded-3xl bg-red-50 p-4 text-sm font-bold text-red-700 dark:bg-red-950/30 dark:text-red-200">
-          Reset and restart controls will live here.
+        <div className="grid gap-4 rounded-3xl bg-red-50 p-4 dark:bg-red-950/30">
+          <div>
+            <div className="font-black text-red-800 dark:text-red-100">Reset Stats</div>
+            <p className="mt-1 text-sm font-bold text-red-700 dark:text-red-200">
+              Clears sales progress but keeps your plan, goals, schedule, blackout dates, and rewards.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setConfirmResetStats(true)}
+            className="w-full rounded-2xl bg-red-600 px-5 py-3 font-black text-white transition active:scale-[0.99] sm:w-auto"
+          >
+            Reset Stats
+          </button>
+          {resetStatus && <div className="rounded-2xl bg-white/70 p-3 text-sm font-bold text-emerald-700 dark:bg-slate-950/40 dark:text-emerald-200">{resetStatus}</div>}
+          {resetError && <div className="rounded-2xl bg-white/70 p-3 text-sm font-bold text-red-700 dark:bg-slate-950/40 dark:text-red-200">{resetError}</div>}
         </div>
       </SettingsBlock>
+      {confirmResetStats && (
+        <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/45 px-3 sm:place-items-center">
+          <div className="w-full max-w-md rounded-t-[2rem] bg-white p-5 shadow-glow dark:bg-slate-900 sm:rounded-[2rem]">
+            <div className="flex items-start gap-3">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-200">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-slate-950 dark:text-slate-50">Reset stats?</h2>
+                <p className="mt-1 text-sm font-bold text-slate-500">
+                  This clears sales progress but keeps your plan, goals, schedule, blackout dates, and rewards.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmResetStats(false)}
+                disabled={resettingStats}
+                className="rounded-2xl bg-slate-100 px-4 py-3 font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-800 dark:text-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmReset}
+                disabled={resettingStats}
+                className="rounded-2xl bg-red-600 px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {resettingStats ? "Resetting..." : "Reset Stats"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2617,6 +2747,15 @@ function SettingsSummary({ label, value }) {
       <div className="mt-1 break-words text-lg font-black text-slate-950 dark:text-slate-50">{value}</div>
     </div>
   );
+}
+
+function passwordResetMessage(error) {
+  const message = error?.message || "Could not send the reset email.";
+  const lower = message.toLowerCase();
+  if (lower.includes("rate") || lower.includes("limit") || lower.includes("too many")) {
+    return "Email limit reached. Try again later or set up custom SMTP.";
+  }
+  return message;
 }
 
 function DayEditor({ day, command, onClose, onSave }) {

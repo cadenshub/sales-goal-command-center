@@ -27,6 +27,11 @@ export async function signOut() {
   if (error) throw error;
 }
 
+export async function sendPasswordResetEmail(email, redirectTo) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined);
+  if (error) throw error;
+}
+
 export async function ensureProfile(user) {
   const { error } = await supabase.from("users").upsert({ id: user.id, email: user.email });
   if (error) throw error;
@@ -255,5 +260,15 @@ export async function upsertIncentive(incentive) {
 
 export async function deleteIncentive(id) {
   const { error } = await supabase.from("incentives").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function resetPlanStats(planId) {
+  const operations = [
+    supabase.from("sales_entries").delete().eq("plan_id", planId),
+    supabase.from("time_block_entries").delete().eq("plan_id", planId),
+  ];
+  const results = await Promise.all(operations);
+  const error = results.find((result) => result.error)?.error;
   if (error) throw error;
 }
