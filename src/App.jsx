@@ -897,33 +897,21 @@ function SetupWizard({ user, onCreated, setError, error }) {
             />
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               <Field label="Week starts on" type="select" value={draft.settings.default_week_start_day} onChange={(v) => updateSettingsField("default_week_start_day", Number(v))} options={weekdayOptions} />
-              <button
-                type="button"
-                onClick={() =>
-                  setDraft((current) => ({
-                    ...current,
-                    calendarDays: [
-                      ...current.calendarDays,
-                      {
-                        date: todayISO(),
-                        day_type: "off",
-                        capacity_weight: 0,
-                        planned_target: 0,
-                        custom_target: null,
-                        include_in_calculations: false,
-                        notes: "Planned day off",
-                      },
-                    ],
-                  }))
-                }
-                className="self-end rounded-2xl border border-slate-200 px-4 py-3 font-black"
-              >
-                Add planned day off
-              </button>
             </div>
+            <SetupBlackoutCalendar
+              plan={draft.plan}
+              settings={draft.settings}
+              calendarDays={draft.calendarDays}
+              onToggleDate={(date) =>
+                setDraft((current) => ({
+                  ...current,
+                  calendarDays: toggleSetupBlackoutDate(current.calendarDays, date),
+                }))
+              }
+            />
             <EditableList
               items={draft.calendarDays}
-              empty="Add planned off days, half days, or big push days."
+              empty="Blackout dates and custom schedule days will appear here."
               render={(day, index) => (
                 <DayMiniEditor
                   day={day}
@@ -991,6 +979,7 @@ function SetupWizard({ user, onCreated, setError, error }) {
               <ReviewItem label="Season goal" value={`${draft.plan.total_goal || 0} sales`} />
               <ReviewItem label="Weekly goal" value={`${draft.plan.default_weekly_goal || 0} sales`} />
               <ReviewItem label="Workdays" value={`${draft.settings.normal_workdays.length} days selected`} />
+              <ReviewItem label="Blackout dates" value={`${countSetupBlackouts(draft.calendarDays)} selected`} />
               <ReviewItem label="Rewards" value={`${draft.incentives.filter((item) => String(item.title || "").trim()).length} added`} />
             </div>
           </SetupStep>
@@ -1039,6 +1028,98 @@ function ReviewItem({ label, value }) {
       <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
       <div className="mt-1 font-black text-slate-950 dark:text-slate-50">{value}</div>
     </div>
+  );
+}
+
+function SetupBlackoutCalendar({ plan, settings, calendarDays, onToggleDate }) {
+  const [anchor, setAnchor] = useState(plan.start_date || todayISO());
+  useEffect(() => {
+    if (plan.start_date) setAnchor(plan.start_date);
+  }, [plan.start_date]);
+  const weekStartDay = Number(settings.default_week_start_day ?? 1);
+  const normalWorkdays = settings.normal_workdays || [1, 2, 3, 4, 5, 6];
+  const monthStartDate = monthStart(parseISO(anchor));
+  const monthEndDate = monthEnd(parseISO(anchor));
+  const gridStart = toISO(weekStart(monthStartDate, weekStartDay));
+  const gridEnd = toISO(weekEnd(monthEndDate, weekStartDay));
+  const monthKey = anchor.slice(0, 7);
+  const calendarDates = datesBetween(gridStart, gridEnd);
+  const dayOverrides = Object.fromEntries(calendarDays.map((day) => [day.date, day]));
+  const weekdayLabels = Array.from({ length: 7 }, (_, index) => {
+    const value = (weekStartDay + index) % 7;
+    return weekdayOptions.find((day) => day.value === value)?.label || "";
+  });
+
+  return (
+    <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setAnchor(toISO(addDays(monthStartDate, -1)))}
+          className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-black text-slate-700 transition active:scale-[0.98] dark:bg-slate-800 dark:text-slate-100"
+        >
+          Prev
+        </button>
+        <div className="text-center">
+          <div className="text-xs font-black uppercase tracking-wide text-slate-400">Blackout dates</div>
+          <div className="text-lg font-black text-slate-950 dark:text-slate-50">{formatMonth(anchor)}</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setAnchor(toISO(addDays(monthEndDate, 1)))}
+          className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-black text-slate-700 transition active:scale-[0.98] dark:bg-slate-800 dark:text-slate-100"
+        >
+          Next
+        </button>
+      </div>
+      <div className="mb-3 rounded-2xl bg-slate-950 px-3 py-2 text-center text-xs font-bold text-white">
+        Tap dates to mark vacation or non-selling days.
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+        <div className="grid grid-cols-7 bg-slate-50 dark:bg-slate-950">
+          {weekdayLabels.map((label) => (
+            <div key={label} className="py-2 text-center text-[10px] font-black uppercase tracking-wide text-slate-400">
+              {label}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7">
+          {calendarDates.map((date) => {
+            const parsed = parseISO(date);
+            const inMonth = date.slice(0, 7) === monthKey;
+            const outsideRange = Boolean((plan.start_date && date < plan.start_date) || (plan.end_date && date > plan.end_date));
+            const isNormalWorkday = parsed ? normalWorkdays.includes(parsed.getDay()) : true;
+            const override = dayOverrides[date];
+            const blackout = isSetupBlackoutDay(override);
+            const nonWorkday = !isNormalWorkday || outsideRange;
+            return (
+              <button
+                key={date}
+                type="button"
+                onClick={() => !outsideRange && onToggleDate(date)}
+                disabled={outsideRange}
+                className={`min-h-12 border-r border-t border-slate-200 p-1.5 text-left text-sm font-black transition last:border-r-0 active:scale-[0.98] dark:border-slate-700 ${
+                  blackout
+                    ? "bg-slate-700 text-white hover:bg-slate-600"
+                    : !inMonth
+                      ? "bg-slate-200/70 text-slate-400 dark:bg-slate-800/80 dark:text-slate-500"
+                      : nonWorkday
+                        ? "bg-slate-100 text-slate-400 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-500"
+                        : "bg-white text-slate-800 hover:bg-indigo-50 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+                } ${outsideRange ? "cursor-not-allowed opacity-50" : ""}`}
+                aria-label={`${blackout ? "Unmark" : "Mark"} ${formatDate(date)} as a blackout date`}
+              >
+                <span>{parsed?.getDate()}</span>
+                {blackout && <span className="float-right text-[10px] text-white">x</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <p className="mt-3 text-xs font-bold text-slate-500">
+        Blackout days will not count toward your selling schedule.
+      </p>
+    </section>
   );
 }
 
@@ -1137,15 +1218,51 @@ function normalizeSetupDraft(draft) {
       weeks: [],
       goalPeriods: [],
       incentives,
-      calendarDays: draft.calendarDays.map((day) => ({
-        ...day,
-        capacity_weight: optionalNumber(day.capacity_weight) ?? 0,
-        planned_target: optionalNumber(day.planned_target) ?? 0,
-        custom_target: optionalNumber(day.custom_target),
-        notes: String(day.notes || "").trim(),
-      })),
+      calendarDays: normalizeSetupCalendarDays(draft.calendarDays),
     },
   };
+}
+
+function toggleSetupBlackoutDate(calendarDays, date) {
+  const existing = calendarDays.find((day) => day.date === date);
+  if (isSetupBlackoutDay(existing)) return calendarDays.filter((day) => day.date !== date);
+  const blackoutDay = {
+    date,
+    day_type: "off",
+    capacity_weight: 0,
+    planned_target: 0,
+    custom_target: null,
+    include_in_calculations: false,
+    notes: "Blackout date.",
+  };
+  return [...calendarDays.filter((day) => day.date !== date), blackoutDay].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function isSetupBlackoutDay(day) {
+  if (!day) return false;
+  return day.day_type === "off" || day.day_type === "vacation" || day.day_type === "non_selling" || Number(day.capacity_weight ?? 1) <= 0 || day.include_in_calculations === false;
+}
+
+function countSetupBlackouts(calendarDays) {
+  return calendarDays.filter(isSetupBlackoutDay).length;
+}
+
+function normalizeSetupCalendarDays(calendarDays) {
+  const daysByDate = new Map();
+  calendarDays.forEach((day) => {
+    if (!day.date) return;
+    const safeDay = { ...day };
+    delete safeDay.setupId;
+    daysByDate.set(day.date, {
+      ...safeDay,
+      capacity_weight: optionalNumber(day.capacity_weight) ?? 0,
+      planned_target: optionalNumber(day.planned_target) ?? 0,
+      custom_target: optionalNumber(day.custom_target),
+      include_in_calculations: day.include_in_calculations !== false,
+      notes: String(day.notes || "").trim(),
+    });
+  });
+  return [...daysByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function normalizeSetupRewards(incentives) {
