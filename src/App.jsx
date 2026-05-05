@@ -1309,7 +1309,7 @@ function Dashboard({ command, setPage, onSaveDay }) {
       <TodaySalesCard command={command} onSaveDay={onSaveDay} />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
-        <CoachSummary command={command} />
+        <CoachSummary command={command} setPage={setPage} />
         <CompactWeekCard command={command} />
         <Card title="Season" icon={Target} compact>
           <div className="flex items-start justify-between gap-4">
@@ -1332,7 +1332,7 @@ function Dashboard({ command, setPage, onSaveDay }) {
   );
 }
 
-function CoachSummary({ command }) {
+function CoachSummary({ command, setPage }) {
   const rewardMessage = command.nextIncentive
     ? `You are ${number(Math.max(0, command.nextIncentive.target - command.nextIncentive.current), 1)} away from ${command.nextIncentive.title}.`
     : "Log sales by block to keep the day accurate.";
@@ -1343,14 +1343,21 @@ function CoachSummary({ command }) {
         ? `You need ${number(command.salesNeededToday, 1)} sales today to stay on pace.`
         : rewardMessage;
   return (
-    <section className="glass-card rounded-3xl p-4 md:p-5">
-      <div className="flex items-start gap-3">
-        <div className="app-icon h-10 w-10">
-          <Sparkles size={18} />
+    <section className="rounded-[1.5rem] border border-indigo-100 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 md:p-4">
+      <div className="flex items-start gap-2.5">
+        <div className="app-icon h-8 w-8 rounded-xl">
+          <Sparkles size={15} />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="text-xs font-black uppercase tracking-wide text-slate-400">Coach</div>
-          <p className="mt-1 text-base font-black leading-6 text-slate-950 dark:text-slate-50">{message}</p>
+          <p className="mt-1 text-sm font-black leading-5 text-slate-950 dark:text-slate-50">{message}</p>
+          <button
+            type="button"
+            onClick={() => setPage("goals")}
+            className="mt-2 inline-flex rounded-full bg-slate-950 px-3 py-1.5 text-xs font-black text-white transition hover:bg-slate-800 active:scale-[0.98] dark:bg-slate-50 dark:text-slate-950"
+          >
+            Goals
+          </button>
         </div>
       </div>
     </section>
@@ -1615,10 +1622,14 @@ function TodaySalesCard({ command, onSaveDay }) {
       <button
         type="button"
         onClick={() => setAddSalesOpen((value) => !value)}
-        className="mt-4 flex min-h-16 w-full items-center justify-center gap-2 rounded-[1.5rem] bg-gradient-to-r from-indigo-600 to-emerald-600 px-5 py-4 text-base font-black text-white shadow-lg shadow-indigo-200/60 transition hover:from-indigo-700 hover:to-emerald-700 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:shadow-none sm:max-w-sm"
+        className={
+          addSalesOpen
+            ? "mt-4 inline-flex min-h-10 items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white transition hover:bg-slate-800 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:bg-slate-50 dark:text-slate-950"
+            : "mt-4 flex min-h-16 w-full items-center justify-center gap-2 rounded-[1.5rem] bg-gradient-to-r from-indigo-600 to-emerald-600 px-5 py-4 text-base font-black text-white shadow-lg shadow-indigo-200/60 transition hover:from-indigo-700 hover:to-emerald-700 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:shadow-none sm:max-w-sm"
+        }
       >
-        <PlusCircle size={20} />
-        {addSalesOpen ? "Close logging panel" : "Add Sales"}
+        {!addSalesOpen && <PlusCircle size={20} />}
+        {addSalesOpen ? "Close" : "Add Sales"}
       </button>
 
       <div className={`${addSalesOpen ? "mt-3" : "mt-0"} rounded-[1.75rem] ${addSalesOpen ? "border-2 border-indigo-100 bg-indigo-50/60 p-2 dark:border-slate-700 dark:bg-slate-950" : ""}`}>
@@ -2077,8 +2088,8 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
   const currentWeek =
     indexedWeeks.find((week) => week.week_start === command.currentWeek.week_start && week.week_end === command.currentWeek.week_end) ||
     { ...command.currentWeek, seasonWeekNumber: Math.max(1, indexedWeeks.findIndex((week) => week.week_start <= command.today && week.week_end >= command.today) + 1) };
-  const relevantWeeks = indexedWeeks.filter((week) => week.week_start <= command.today || (week.week_start <= currentWeek.week_end && week.week_end >= currentWeek.week_start));
-  const visibleWeeks = (relevantWeeks.length ? relevantWeeks : indexedWeeks.slice(0, 1)).slice(-8);
+  const currentWeekIndex = Math.max(0, indexedWeeks.findIndex((week) => week.week_start === currentWeek.week_start && week.week_end === currentWeek.week_end));
+  const visibleWeeks = indexedWeeks.slice(Math.max(0, currentWeekIndex - 4), Math.min(indexedWeeks.length, currentWeekIndex + 5));
   const [showWeekEditor, setShowWeekEditor] = useState(false);
   const stats = statsPageSummary(command, currentWeek);
   return (
@@ -2086,7 +2097,7 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
       <PageIntro
         eyebrow="Week Planner"
         title="Weekly progress"
-        description="See the current week, check the trend, and keep week goals tucked away until you need them."
+        description="See this week, the recent trend, and the next few goals coming up."
       />
       <CurrentWeekSummary week={currentWeek} command={command} />
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-stretch">
@@ -2197,8 +2208,12 @@ function WeeklyOverviewList({ weeks }) {
         {weeks.map((week) => {
           const progress = Number(week.progress || 0);
           const badge = weeklyAchievement(progress / 100, week.weekly_goal);
+          const isFuture = week.week_start > todayISO();
           return (
-            <div key={`${week.week_start}-${week.week_end}-${week.id || ""}`} className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <div
+              key={`${week.week_start}-${week.week_end}-${week.id || ""}`}
+              className={`rounded-2xl border p-3 shadow-sm dark:bg-slate-900 ${weeklyOverviewCardClass(badge?.label, isFuture)}`}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Week {week.seasonWeekNumber}</div>
@@ -2244,6 +2259,15 @@ function statsPageSummary(command, currentWeek) {
       total: incentiveTotal,
     },
   };
+}
+
+function weeklyOverviewCardClass(label, isFuture) {
+  if (isFuture) return "border-indigo-100 bg-indigo-50/40 dark:border-indigo-400/20";
+  if (label === "Diamond") return "border-cyan-200 bg-cyan-50/70 dark:border-cyan-300/30";
+  if (label === "Gold") return "border-yellow-300 bg-yellow-50/80 dark:border-yellow-200/40";
+  if (label === "Silver") return "border-slate-300 bg-slate-50 dark:border-slate-500";
+  if (label === "Bronze") return "border-[#d69a5b]/50 bg-[#fff7ed] dark:border-[#d69a5b]/40";
+  return "border-slate-200 bg-white dark:border-slate-700";
 }
 
 function weeklyGraphData(weeks) {
