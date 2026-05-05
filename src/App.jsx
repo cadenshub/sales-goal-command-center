@@ -2500,15 +2500,12 @@ function SettingsPage({ user, workspace, saveSettings, savePlan }) {
   }
 
   return (
-    <div className="grid gap-5">
-      <Card title="Account / App" icon={Settings}>
-        <Metric label="Signed in as" value={user.email} />
-        <Metric label="Active plan" value={workspace.plan.name} />
-      </Card>
-
-      <Card title="Work schedule" icon={Calendar}>
-        <WeekdayPicker value={workspace.settings.normal_workdays} onChange={(normal_workdays) => saveSettings({ normal_workdays })} />
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+    <div className="grid gap-4">
+      <SettingsBlock title="Plan basics" description="Your main plan targets and default weekly pace." icon={Target}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SettingsSummary label="Plan name" value={workspace.plan.name} />
+          <SettingsSummary label="Season goal" value={`${number(workspace.plan.total_goal)} sales`} />
+          <SettingsSummary label="Season dates" value={`${formatDate(workspace.plan.start_date, { year: undefined })} - ${formatDate(workspace.plan.end_date, { year: undefined })}`} />
           <div className="grid gap-2">
             <Field label="Default weekly goal" type="number" value={defaultWeeklyGoal} onChange={setDefaultWeeklyGoal} />
             <p className="text-xs font-bold text-slate-500">Used for weeks without a custom goal.</p>
@@ -2520,13 +2517,13 @@ function SettingsPage({ user, workspace, saveSettings, savePlan }) {
               Save default weekly goal
             </button>
           </div>
-          <Field
-            label="Week starts on"
-            type="select"
-            value={workspace.settings.default_week_start_day}
-            onChange={(v) => saveSettings({ default_week_start_day: Number(v) })}
-            options={weekdayOptions}
-          />
+        </div>
+      </SettingsBlock>
+
+      <SettingsBlock title="Schedule" description="Choose which days count and how the sales week is organized." icon={Calendar}>
+        <WeekdayPicker value={workspace.settings.normal_workdays} onChange={(normal_workdays) => saveSettings({ normal_workdays })} />
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <Field label="Week starts on" type="select" value={workspace.settings.default_week_start_day} onChange={(v) => saveSettings({ default_week_start_day: Number(v) })} options={weekdayOptions} />
           <Field
             label="Catch-up style"
             type="select"
@@ -2538,16 +2535,15 @@ function SettingsPage({ user, workspace, saveSettings, savePlan }) {
               { value: "protect_rest", label: "Protect planned days off" },
             ]}
           />
+          <SettingsSummary label="Workdays selected" value={`${workspace.settings.normal_workdays?.length || 0} days`} />
+          <SettingsSummary label="Time blocks" value={`${blocks.filter((block) => block.active).length} active`} />
         </div>
-      </Card>
+      </SettingsBlock>
 
-      <Card title="Time blocks" icon={Clock}>
-        <p className="mb-5 text-sm font-semibold text-slate-500">
-          Edit how today's goal is split. Breaks can stay visible without receiving a target.
-        </p>
+      <SettingsBlock title="Time blocks" description="Edit how today's goal is split across the day." icon={Clock}>
         <div className="grid gap-3">
           {blocks.map((block) => (
-            <div key={block.key} className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:grid-cols-[1fr_0.8fr_0.8fr_0.7fr_auto]">
+            <div key={block.key} className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950 md:grid-cols-[1fr_0.8fr_0.8fr_0.7fr_auto]">
               <Field label="Block name" value={block.name} onChange={(v) => updateBlock(block.key, { name: v })} />
               <Field label="Start time" type="time" value={block.start_time} onChange={(v) => updateBlock(block.key, { start_time: v })} />
               <Field label="End time" type="time" value={block.end_time} onChange={(v) => updateBlock(block.key, { end_time: v })} />
@@ -2567,9 +2563,9 @@ function SettingsPage({ user, workspace, saveSettings, savePlan }) {
             Reset defaults
           </button>
         </div>
-      </Card>
+      </SettingsBlock>
 
-      <Card title="Display preferences" icon={CheckCircle2}>
+      <SettingsBlock title="App preferences" description="Keep the app comfortable for how you like to work." icon={CheckCircle2}>
         <Field
           label="Theme"
           type="select"
@@ -2581,13 +2577,44 @@ function SettingsPage({ user, workspace, saveSettings, savePlan }) {
             { value: "dark", label: "Dark later" },
           ]}
         />
-      </Card>
+      </SettingsBlock>
 
-      <Card title="Danger zone" icon={AlertTriangle}>
-        <div className="rounded-3xl bg-red-50 p-4 text-sm font-bold text-red-700">
-          Destructive account or plan reset controls are intentionally not shown here yet. Use Supabase directly if you need a full wipe.
+      <SettingsBlock title="Account" description="Your signed-in account for this command center." icon={Settings}>
+        <SettingsSummary label="Email" value={user.email} />
+      </SettingsBlock>
+
+      <SettingsBlock title="Danger Zone" description="Destructive controls are intentionally separated." icon={AlertTriangle} tone="danger">
+        <div className="rounded-3xl bg-red-50 p-4 text-sm font-bold text-red-700 dark:bg-red-950/30 dark:text-red-200">
+          Reset and restart controls will live here.
         </div>
-      </Card>
+      </SettingsBlock>
+    </div>
+  );
+}
+
+function SettingsBlock({ title, description, icon: Icon, children, tone = "default" }) {
+  const iconClass = tone === "danger" ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-200" : "bg-slate-950 text-white dark:bg-slate-100 dark:text-slate-950";
+  return (
+    <section className="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900 md:p-5">
+      <div className="mb-5 flex items-start gap-3">
+        <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${iconClass}`}>
+          <Icon size={20} />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-xl font-black text-slate-950 dark:text-slate-50">{title}</h2>
+          {description && <p className="mt-1 text-sm font-bold text-slate-500">{description}</p>}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function SettingsSummary({ label, value }) {
+  return (
+    <div className="rounded-3xl bg-slate-50 p-4 dark:bg-slate-950">
+      <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="mt-1 break-words text-lg font-black text-slate-950 dark:text-slate-50">{value}</div>
     </div>
   );
 }
