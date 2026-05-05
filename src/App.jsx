@@ -1366,7 +1366,7 @@ function CoachSummary({ command, setPage }) {
 
 function RewardSummary({ command, setPage }) {
   return (
-    <Card title="Next reward" icon={Gift} compact>
+    <IncentivePanel title="Next reward" icon={Gift}>
       {command.nextIncentive ? (
         <>
           <div className="min-w-0 text-xl font-black break-words">{command.nextIncentive.title}</div>
@@ -1379,12 +1379,12 @@ function RewardSummary({ command, setPage }) {
       ) : (
         <div className="grid gap-3">
           <p className="text-sm font-bold text-slate-500">No reward yet. Add one to make the next milestone more fun.</p>
-          <button type="button" onClick={() => setPage("incentives")} className="rounded-2xl bg-purple-600 px-4 py-3 font-black text-white">
+          <button type="button" onClick={() => setPage("incentives")} className="incentive-action rounded-2xl px-4 py-3 font-black text-white transition active:scale-[0.98]">
             Add reward
           </button>
         </div>
       )}
-    </Card>
+    </IncentivePanel>
   );
 }
 
@@ -2435,7 +2435,7 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
               type="button"
               onClick={() => setEditingReward(newIncentive(workspace.plan.id))}
               disabled={Boolean(editingReward)}
-              className="incentive-action min-h-12 w-full rounded-2xl px-5 py-3 text-sm font-black text-white transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+              className="incentive-action mx-auto min-h-12 w-full max-w-xs rounded-2xl px-5 py-3 text-sm font-black text-white transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
             >
               Add Reward
             </button>
@@ -2477,7 +2477,7 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
 
 function IncentivePanel({ title, icon: Icon, children }) {
   return (
-    <section className="incentive-vibe rounded-[2rem] p-4 md:p-5">
+    <section className="incentive-outline rounded-[2rem] p-4 md:p-5">
       <div className="mb-3 flex items-center gap-3">
         <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-purple-600 text-white shadow-sm">
           <Icon size={19} />
@@ -2491,7 +2491,7 @@ function IncentivePanel({ title, icon: Icon, children }) {
 
 function RewardCard({ incentive, onEdit, onClaim, onDelete }) {
   return (
-    <div className="incentive-vibe rounded-[1.5rem] p-4">
+    <div className="incentive-outline rounded-[1.5rem] p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="break-words text-xl font-black text-slate-950 dark:text-slate-50">{incentive.title}</div>
