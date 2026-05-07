@@ -2400,11 +2400,33 @@ function GoalsPage({ workspace, command, savePlan }) {
 
 function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) {
   const [editingReward, setEditingReward] = useState(null);
+  const [claimingRewardId, setClaimingRewardId] = useState("");
+  const [claimedRewardId, setClaimedRewardId] = useState("");
+  const [confettiKey, setConfettiKey] = useState(0);
+  const claimFeedbackTimerRef = useRef(null);
   const rewards = dedupeById(command.incentives).filter((item) => String(item.title || "").trim());
   const achievedCount = rewards.filter((item) => item.status === "achieved" || item.status === "claimed").length;
   const nextReward = command.nextIncentive;
+
+  useEffect(() => () => window.clearTimeout(claimFeedbackTimerRef.current), []);
+
+  async function claimReward(item) {
+    if (!item?.id || claimingRewardId || item.status === "claimed") return;
+    setClaimingRewardId(item.id);
+    try {
+      await saveIncentive({ ...item, status: "claimed" });
+      setClaimedRewardId(item.id);
+      setConfettiKey(Date.now());
+      window.clearTimeout(claimFeedbackTimerRef.current);
+      claimFeedbackTimerRef.current = window.setTimeout(() => setClaimedRewardId(""), 1800);
+    } finally {
+      setClaimingRewardId("");
+    }
+  }
+
   return (
     <div className="mx-auto grid max-w-6xl gap-4 md:gap-5">
+      <IncentiveConfetti burstKey={confettiKey} />
       <PageIntro
         eyebrow="Incentives"
         title="Rewards"
@@ -2452,8 +2474,10 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
                 key={item.id}
                 incentive={item}
                 onEdit={() => setEditingReward(item)}
-                onClaim={() => saveIncentive({ ...item, status: "claimed" })}
+                onClaim={() => claimReward(item)}
                 onDelete={() => removeIncentive(item.id)}
+                claiming={claimingRewardId === item.id}
+                recentlyClaimed={claimedRewardId === item.id}
               />
             ))}
           </div>
@@ -2477,6 +2501,39 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
   );
 }
 
+function IncentiveConfetti({ burstKey }) {
+  if (!burstKey) return null;
+  const pieces = [
+    ["-34vw", "-22vh", "#7c3aed", "86deg"],
+    ["-25vw", "-31vh", "#a855f7", "142deg"],
+    ["-15vw", "-26vh", "#22c55e", "222deg"],
+    ["-6vw", "-36vh", "#facc15", "308deg"],
+    ["6vw", "-32vh", "#06b6d4", "44deg"],
+    ["16vw", "-27vh", "#ec4899", "132deg"],
+    ["26vw", "-30vh", "#8b5cf6", "238deg"],
+    ["35vw", "-20vh", "#10b981", "315deg"],
+    ["-38vw", "2vh", "#f59e0b", "188deg"],
+    ["-28vw", "11vh", "#38bdf8", "256deg"],
+    ["-18vw", "18vh", "#c084fc", "31deg"],
+    ["-7vw", "9vh", "#34d399", "111deg"],
+    ["7vw", "14vh", "#f472b6", "201deg"],
+    ["18vw", "20vh", "#fde047", "283deg"],
+    ["29vw", "9vh", "#60a5fa", "349deg"],
+    ["38vw", "1vh", "#a78bfa", "76deg"],
+    ["-12vw", "-8vh", "#fb7185", "167deg"],
+    ["13vw", "-10vh", "#2dd4bf", "247deg"],
+    ["-3vw", "24vh", "#fbbf24", "317deg"],
+    ["3vw", "25vh", "#9333ea", "27deg"],
+  ];
+  return (
+    <div key={burstKey} className="claim-confetti" aria-hidden="true">
+      {pieces.map(([x, y, color, rotation], index) => (
+        <span key={index} style={{ "--x": x, "--y": y, "--color": color, "--r": rotation }} />
+      ))}
+    </div>
+  );
+}
+
 function IncentivePanel({ title, icon: Icon, children }) {
   return (
     <section className="incentive-outline rounded-[2rem] p-4 md:p-5">
@@ -2491,9 +2548,10 @@ function IncentivePanel({ title, icon: Icon, children }) {
   );
 }
 
-function RewardCard({ incentive, onEdit, onClaim, onDelete }) {
+function RewardCard({ incentive, onEdit, onClaim, onDelete, claiming = false, recentlyClaimed = false }) {
+  const claimed = incentive.status === "claimed";
   return (
-    <div className="incentive-outline rounded-[1.5rem] p-4">
+    <div className={`incentive-outline rounded-[1.5rem] p-4 ${recentlyClaimed ? "celebrate" : ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="break-words text-xl font-black text-slate-950 dark:text-slate-50">{incentive.title}</div>
@@ -2513,8 +2571,18 @@ function RewardCard({ incentive, onEdit, onClaim, onDelete }) {
           Edit
         </button>
         {incentive.status === "achieved" && (
-          <button type="button" onClick={onClaim} className="rounded-2xl bg-purple-600 px-4 py-3 text-sm font-black text-white transition hover:bg-purple-700 active:scale-[0.98]">
-            Claim
+          <button
+            type="button"
+            onClick={onClaim}
+            disabled={claiming}
+            className="rounded-2xl bg-purple-600 px-4 py-3 text-sm font-black text-white transition hover:bg-purple-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {claiming ? "Claiming..." : "Claim"}
+          </button>
+        )}
+        {claimed && (
+          <button type="button" disabled className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 ring-1 ring-emerald-200 disabled:cursor-not-allowed dark:bg-emerald-950/30 dark:text-emerald-100 dark:ring-emerald-700/50">
+            Claimed ✓
           </button>
         )}
         <button type="button" onClick={onDelete} className="app-danger-button px-4 py-3 text-sm">

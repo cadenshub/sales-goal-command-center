@@ -141,6 +141,41 @@ button {
   animation: pop 420ms ease;
 }
 
+.claim-confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.claim-confetti span {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: 0.55rem;
+  height: 0.85rem;
+  border-radius: 0.2rem;
+  background: var(--color);
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(var(--r));
+  animation: claim-confetti-burst 1100ms ease-out forwards;
+}
+
+@keyframes claim-confetti-burst {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.45) rotate(var(--r));
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) rotate(calc(var(--r) + 220deg));
+  }
+}
+
 .incentive-outline {
   border: 1px solid transparent;
   background:
@@ -156,6 +191,12 @@ button {
   box-shadow:
     0 20px 48px rgba(0, 0, 0, 0.32),
     0 0 0 1px rgba(192, 132, 252, 0.16);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claim-confetti {
+    display: none;
+  }
 }
 
 .dark .bg-white {
