@@ -88,9 +88,8 @@ export function buildCommandCenter(workspace) {
   const normalWorkdays = settings.normal_workdays || [1, 2, 3, 4, 5, 6];
   const timeBlocksConfig = normalizeTimeBlocks(settings.time_blocks_config);
   const seasonDates = datesBetween(plan.start_date, plan.end_date);
+  const trackingStart = maxISO(plan.start_date, plan.tracking_start_date || plan.start_date);
   const activeEnd = minISO(today, plan.end_date);
-  const currentWeekStart = toISO(weekStart(parseISO(today), weekStartDay));
-  const currentWeekEnd = toISO(weekEnd(parseISO(today), weekStartDay));
   const currentMonthStart = toISO(monthStart(parseISO(today)));
   const currentMonthEnd = toISO(monthEnd(parseISO(today)));
   const salesInRange = sumSales(plan.start_date, plan.end_date, entriesByDate, timeBlocksByDate);
@@ -100,7 +99,7 @@ export function buildCommandCenter(workspace) {
   const completed =
     Number(plan.starting_sales || 0) + salesInRange + (plan.include_outside_range_sales ? outsideSales : 0);
   const remaining = Math.max(0, Number(plan.total_goal || 0) - completed);
-  const futureStart = maxISO(today, plan.tracking_start_date || plan.start_date);
+  const futureStart = maxISO(today, trackingStart);
   const remainingWorkCapacity =
     futureStart <= plan.end_date
       ? sumCapacity(futureStart, plan.end_date, normalWorkdays, dayOverrides)
@@ -124,10 +123,21 @@ export function buildCommandCenter(workspace) {
   const afterToday = toISO(addDays(parseISO(today), 1));
   const futureCapacity = afterToday <= plan.end_date ? sumCapacity(afterToday, plan.end_date, normalWorkdays, dayOverrides) : 0;
   const projectedFinish = completed + avgPerWorkedDay * futureCapacity;
-  const currentWeek = getWeekRange(workspace, currentWeekStart, currentWeekEnd, plan.default_weekly_goal);
+  const weeks = buildWeeks(
+    workspace,
+    weekStartDay,
+    normalWorkdays,
+    dayOverrides,
+    entriesByDate,
+    timeBlocksByDate,
+    weeklyConfirmationsByRange,
+  );
+  const currentWeek = getCurrentTrackedWeek(weeks, workspace, today, weekStartDay);
+  const currentWeekStart = currentWeek.week_start;
+  const currentWeekEnd = currentWeek.week_end;
   const currentWeekActual = sumSales(currentWeek.week_start, currentWeek.week_end, entriesByDate, timeBlocksByDate);
   const currentWeekRemaining = Math.max(0, Number(currentWeek.weekly_goal || 0) - currentWeekActual);
-  const currentWeekFutureStart = maxISO(today, currentWeek.week_start);
+  const currentWeekFutureStart = maxISO(maxISO(today, trackingStart), currentWeek.week_start);
   const currentWeekCapacity =
     currentWeekFutureStart <= currentWeek.week_end
       ? sumCapacity(currentWeekFutureStart, currentWeek.week_end, normalWorkdays, dayOverrides)
@@ -160,15 +170,6 @@ export function buildCommandCenter(workspace) {
   const worstDay = workedDates.reduce((worst, date) => (saleCount(date, entriesByDate, timeBlocksByDate) < saleCount(worst, entriesByDate, timeBlocksByDate) ? date : worst), workedDates[0]);
   const zeroSaleDays = workedDates.filter((date) => saleCount(date, entriesByDate, timeBlocksByDate) === 0).length;
   const currentStreak = getCurrentStreak(today, plan.start_date, normalWorkdays, dayOverrides, entriesByDate, timeBlocksByDate);
-  const weeks = buildWeeks(
-    workspace,
-    weekStartDay,
-    normalWorkdays,
-    dayOverrides,
-    entriesByDate,
-    timeBlocksByDate,
-    weeklyConfirmationsByRange,
-  );
   const incentives = evaluateIncentives(workspace.incentives || [], {
     completed,
     currentStreak,
@@ -370,8 +371,25 @@ function getCurrentStreak(today, seasonStart, normalWorkdays, dayOverrides, entr
   return streak;
 }
 
+function getCurrentTrackedWeek(weeks, workspace, today, weekStartDay) {
+  const plan = workspace.plan;
+  const trackingStart = maxISO(plan.start_date, plan.tracking_start_date || plan.start_date);
+  const anchor = today < trackingStart ? trackingStart : today > plan.end_date ? plan.end_date : today;
+  const match = weeks.find((week) => week.week_start <= anchor && anchor <= week.week_end);
+  if (match) return match;
+
+  const start = toISO(weekStart(parseISO(anchor), weekStartDay));
+  const end = toISO(weekEnd(parseISO(anchor), weekStartDay));
+  return getWeekRange(workspace, start, end, plan.default_weekly_goal);
+}
+
 function getWeekRange(workspace, start, end, defaultGoal) {
-  const match = (workspace.weeks || []).find((week) => start <= week.week_end && end >= week.week_start);
+  const savedWeeks = workspace.weeks || [];
+  const exactMatch = savedWeeks.find((week) => week.week_start === start && week.week_end === end);
+  const rangeMatch = savedWeeks.find(
+    (week) => week.custom_range_enabled && start <= week.week_end && end >= week.week_start,
+  );
+  const match = exactMatch || rangeMatch;
   return (
     match
       ? { ...match, weekly_goal: getEffectiveWeeklyGoal(match, defaultGoal) }
@@ -397,7 +415,8 @@ function buildWeeks(
 ) {
   const plan = workspace.plan;
   const ranges = [];
-  let cursor = weekStart(parseISO(plan.start_date), weekStartDay);
+  const trackingStart = maxISO(plan.start_date, plan.tracking_start_date || plan.start_date);
+  let cursor = weekStart(parseISO(trackingStart), weekStartDay);
   const seasonEnd = parseISO(plan.end_date);
   while (cursor <= seasonEnd) {
     const start = toISO(cursor);
