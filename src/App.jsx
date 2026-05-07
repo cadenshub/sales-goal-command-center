@@ -1872,7 +1872,9 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
   function weekGoalFor(week) {
     const start = week[0];
     const end = week[6];
-    const match = command.weeks.find((item) => start <= item.week_end && end >= item.week_start);
+    const match =
+      command.weeks.find((item) => item.week_start === start && item.week_end === end) ||
+      command.weeks.find((item) => item.week_start <= start && end <= item.week_end);
     return getEffectiveWeeklyGoal(match, command.plan);
   }
 

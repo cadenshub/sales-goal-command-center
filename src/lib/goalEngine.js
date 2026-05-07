@@ -414,6 +414,7 @@ function buildWeeks(
   weeklyConfirmationsByRange,
 ) {
   const plan = workspace.plan;
+  const savedWeeks = workspace.weeks || [];
   const ranges = [];
   const trackingStart = maxISO(plan.start_date, plan.tracking_start_date || plan.start_date);
   let cursor = weekStart(parseISO(trackingStart), weekStartDay);
@@ -425,16 +426,17 @@ function buildWeeks(
     cursor = addDays(cursor, 7);
   }
 
-  const unique = new Map();
-  const normalizedSavedWeeks = (workspace.weeks || []).map((week) => ({
-    ...week,
-    weekly_goal: getEffectiveWeeklyGoal(week, plan),
-  }));
-  [...ranges, ...normalizedSavedWeeks].forEach((week) => {
-    unique.set(`${week.week_start}-${week.week_end}`, week);
+  const canonical = new Map(ranges.map((week) => [`${week.week_start}:${week.week_end}`, week]));
+  savedWeeks.forEach((savedWeek) => {
+    if (savedWeek.custom_range_enabled && !ranges.some((range) => weeksOverlap(range, savedWeek))) {
+      canonical.set(`${savedWeek.week_start}:${savedWeek.week_end}`, {
+        ...savedWeek,
+        weekly_goal: getEffectiveWeeklyGoal(savedWeek, plan),
+      });
+    }
   });
 
-  return [...unique.values()]
+  return [...canonical.values()]
     .sort((a, b) => a.week_start.localeCompare(b.week_start))
     .map((week) => {
       const actual = sumSales(week.week_start, week.week_end, entriesByDate, timeBlocksByDate);
@@ -460,6 +462,10 @@ function buildWeeks(
         status: requiredPerDay > Number(workspace.plan.max_sales_per_day || 0) ? "Overloaded" : progress >= 100 ? "Ahead" : "Active",
       };
     });
+}
+
+function weeksOverlap(a, b) {
+  return a.week_start <= b.week_end && b.week_start <= a.week_end;
 }
 
 function groupWeeklyConfirmations(confirmations) {
