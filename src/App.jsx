@@ -15,10 +15,12 @@ import {
   Moon,
   Phone,
   Plus,
+  PlusCircle,
   Settings,
   Sparkles,
   Sun,
   Target,
+  Trophy,
   TrendingUp,
 } from "lucide-react";
 import {
@@ -277,7 +279,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <aside className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 px-2 py-2 backdrop-blur md:px-6 lg:bottom-auto lg:right-auto lg:top-0 lg:h-screen lg:w-72 lg:border-r lg:border-t-0 lg:px-5 lg:py-6">
+      <aside className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 px-2 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90 md:px-6 lg:bottom-auto lg:right-auto lg:top-0 lg:h-screen lg:w-72 lg:border-r lg:border-t-0 lg:px-5 lg:py-6">
         <div className="mb-8 hidden items-center gap-3 lg:flex">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-indigo-600 text-white shadow-glow">
             <Target size={24} />
@@ -297,8 +299,8 @@ export default function App() {
                 onClick={() => setPage(item.id)}
                 className={`flex min-h-14 flex-col items-center justify-center rounded-2xl px-2 text-xs font-bold transition lg:min-h-11 lg:flex-row lg:justify-start lg:gap-3 lg:px-4 lg:text-sm ${
                   page === item.id
-                    ? "bg-slate-950 text-white shadow-card"
-                    : "text-slate-600 hover:bg-white hover:text-slate-950"
+                    ? "bg-slate-950 text-white shadow-card dark:bg-slate-100 dark:text-slate-950"
+                    : "text-slate-600 hover:bg-white hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white"
                 }`}
               >
                 <Icon size={19} />
@@ -308,7 +310,7 @@ export default function App() {
           })}
         </nav>
         <div className="mt-auto hidden pt-8 lg:block">
-          <div className="rounded-3xl bg-white p-4 shadow-card">
+          <div className="app-card">
             <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Sync</div>
             <div className="mt-1 font-black">{saveState}</div>
             <button
@@ -323,7 +325,7 @@ export default function App() {
       </aside>
 
       <main className="pb-24 lg:ml-72 lg:pb-0">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 px-4 py-4 backdrop-blur md:px-6 xl:px-8">
+        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 px-4 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 md:px-6 xl:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-sm font-bold text-slate-500">{formatDate(command.today, { weekday: "long" })}</div>
@@ -335,7 +337,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setPage("goals")}
-                className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-card transition hover:-translate-y-0.5"
+                className="app-primary-button px-4 py-3 text-sm"
               >
                 Edit plan
               </button>
@@ -344,7 +346,7 @@ export default function App() {
           {error && <div className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>}
         </header>
 
-        <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-7 xl:px-8">
+        <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-6 xl:px-8">
           {page === "dashboard" && <Dashboard command={command} setPage={setPage} onSaveDay={saveDay} />}
           {page === "calendar" && <CalendarPage command={command} onSelectDay={setSelectedDay} onSaveDay={saveDay} />}
           {page === "weekly" && (
@@ -541,20 +543,7 @@ export default function App() {
   }
 
   async function saveIncentive(incentive) {
-    const title = String(incentive.title || "").trim();
-    if (!title) throw new Error("Reward name is required.");
-    const payload = {
-      ...(incentive.id ? { id: incentive.id } : {}),
-      plan_id: workspace.plan.id,
-      title,
-      description: String(incentive.description || "").trim(),
-      incentive_type: incentive.incentive_type || "sales_milestone",
-      target_value: Number(incentive.target_value || 0),
-      target_date: incentive.target_date || null,
-      related_goal_period_id: incentive.related_goal_period_id || null,
-      reward_value: incentive.reward_value === "" || incentive.reward_value === null ? null : Number(incentive.reward_value || 0),
-      status: incentive.status || "locked",
-    };
+    const payload = normalizeIncentiveDraft(incentive, workspace.plan.id);
     await saveAndPatch(
       (current) => ({
         ...current,
@@ -1316,11 +1305,11 @@ function parseNumericInput(value) {
 function Dashboard({ command, setPage, onSaveDay }) {
   const completion = command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0;
   return (
-    <div className="grid gap-4 md:gap-5">
-      <CoachSummary command={command} />
+    <div className="mx-auto grid max-w-6xl gap-4 md:gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)] xl:items-start">
       <TodaySalesCard command={command} onSaveDay={onSaveDay} />
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+        <CoachSummary command={command} setPage={setPage} />
         <CompactWeekCard command={command} />
         <Card title="Season" icon={Target} compact>
           <div className="flex items-start justify-between gap-4">
@@ -1337,13 +1326,13 @@ function Dashboard({ command, setPage, onSaveDay }) {
             {number(command.remaining)} remaining · {number(command.requiredPerWorkday, 1)} per workday
           </div>
         </Card>
+        <RewardSummary command={command} setPage={setPage} />
       </section>
-      <RewardSummary command={command} setPage={setPage} />
     </div>
   );
 }
 
-function CoachSummary({ command }) {
+function CoachSummary({ command, setPage }) {
   const rewardMessage = command.nextIncentive
     ? `You are ${number(Math.max(0, command.nextIncentive.target - command.nextIncentive.current), 1)} away from ${command.nextIncentive.title}.`
     : "Log sales by block to keep the day accurate.";
@@ -1354,14 +1343,21 @@ function CoachSummary({ command }) {
         ? `You need ${number(command.salesNeededToday, 1)} sales today to stay on pace.`
         : rewardMessage;
   return (
-    <section className="glass-card rounded-3xl p-4 md:p-5">
-      <div className="flex items-start gap-3">
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-slate-950 text-white">
-          <Sparkles size={18} />
+    <section className="rounded-[1.5rem] border border-indigo-100 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 md:p-4">
+      <div className="flex items-start gap-2.5">
+        <div className="app-icon h-8 w-8 rounded-xl">
+          <Sparkles size={15} />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="text-xs font-black uppercase tracking-wide text-slate-400">Coach</div>
-          <p className="mt-1 text-base font-black leading-6 text-slate-950">{message}</p>
+          <p className="mt-1 text-sm font-black leading-5 text-slate-950 dark:text-slate-50">{message}</p>
+          <button
+            type="button"
+            onClick={() => setPage("goals")}
+            className="mt-2 inline-flex rounded-full bg-slate-950 px-3 py-1.5 text-xs font-black text-white transition hover:bg-slate-800 active:scale-[0.98] dark:bg-slate-50 dark:text-slate-950"
+          >
+            Goals
+          </button>
         </div>
       </div>
     </section>
@@ -1370,7 +1366,7 @@ function CoachSummary({ command }) {
 
 function RewardSummary({ command, setPage }) {
   return (
-    <Card title="Next reward" icon={Gift} compact>
+    <IncentivePanel title="Next reward" icon={Gift}>
       {command.nextIncentive ? (
         <>
           <div className="min-w-0 text-xl font-black break-words">{command.nextIncentive.title}</div>
@@ -1383,12 +1379,12 @@ function RewardSummary({ command, setPage }) {
       ) : (
         <div className="grid gap-3">
           <p className="text-sm font-bold text-slate-500">No reward yet. Add one to make the next milestone more fun.</p>
-          <button type="button" onClick={() => setPage("incentives")} className="rounded-2xl bg-purple-600 px-4 py-3 font-black text-white">
+          <button type="button" onClick={() => setPage("incentives")} className="rounded-2xl bg-purple-600 px-4 py-3 font-black text-white transition hover:bg-purple-700 active:scale-[0.98]">
             Add reward
           </button>
         </div>
       )}
-    </Card>
+    </IncentivePanel>
   );
 }
 
@@ -1423,7 +1419,7 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [manualSales, setManualSales] = useState(today?.actual || 0);
   const [blockDrafts, setBlockDrafts] = useState(() => blockDraftsFromDay(today));
   const [showAllBlocks, setShowAllBlocks] = useState(false);
-  const [addSalesOpen, setAddSalesOpen] = useState(false);
+  const [addSalesOpen, setAddSalesOpen] = useState(true);
   const [logAmount, setLogAmount] = useState(1);
   const [saleType, setSaleType] = useState("doors");
   const [selectedBlockKey, setSelectedBlockKey] = useState("");
@@ -1446,7 +1442,7 @@ function TodaySalesCard({ command, onSaveDay }) {
 
   useEffect(() => {
     setShowAllBlocks(false);
-    setAddSalesOpen(false);
+    setAddSalesOpen(true);
     setLogAmount(1);
     setSaleType("doors");
     setSelectedBlockKey("");
@@ -1582,50 +1578,67 @@ function TodaySalesCard({ command, onSaveDay }) {
   }
 
   return (
-    <section className="glass-card rounded-3xl p-3.5 md:p-6">
-      <div className="flex items-start justify-between gap-3">
+    <section className="relative overflow-hidden rounded-[2rem] border border-indigo-100 bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900 md:p-6">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-indigo-500 via-emerald-400 to-indigo-500" />
+      <div className="flex items-start justify-between gap-3 pt-1">
         <div className="min-w-0">
           <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Sales for today</div>
-          <h2 className="mt-1 truncate text-xl font-black tracking-tight">{formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}</h2>
+          <h2 className="mt-1 truncate text-xl font-black tracking-tight text-slate-950 dark:text-slate-50">
+            {formatDate(today.date, { weekday: "short", month: "short", day: "numeric" })}
+          </h2>
         </div>
-        <Badge tone={statusTone(today.status)}>{today.status}</Badge>
+        <div className="shrink-0 scale-90 opacity-70">
+          <Badge tone={statusTone(today.status)}>{today.status}</Badge>
+        </div>
       </div>
 
-      <div className="mt-3 rounded-2xl bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-3 ring-1 ring-slate-200">
-        <div className="flex items-center justify-between gap-3 text-sm font-black">
-          <span className="text-slate-600">Daily progress</span>
-          <span className="shrink-0 text-slate-950">{number(totalActual)} / {number(totalTarget, 1)} sales</span>
+      <div className="mt-4 rounded-[1.75rem] border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-emerald-50 p-4 shadow-sm dark:border-slate-700 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-xs font-black uppercase tracking-wide text-slate-400">Done today</div>
+            <div className="mt-1 flex flex-wrap items-end gap-x-2 gap-y-1">
+              <span className={`text-5xl font-black leading-none tracking-tight text-slate-950 transition-colors duration-500 dark:text-slate-50 ${donePulse ? "text-emerald-600 drop-shadow-sm dark:text-emerald-400" : ""}`}>
+                {number(totalActual)}
+              </span>
+              <span className="pb-1 text-lg font-black text-slate-400">of {number(totalTarget, 1)}</span>
+            </div>
+          </div>
+          <div className="shrink-0 rounded-2xl bg-white px-3 py-2 text-right shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+            <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">Goal</div>
+            <div className="text-lg font-black text-slate-950 dark:text-slate-50">{number(totalTarget, 1)}</div>
+          </div>
         </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+        <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
           <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, dailyProgress)}%` }} />
         </div>
-      </div>
-
-      <p className="mt-2 text-sm font-bold text-slate-500">{dayHelpText}</p>
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <CompactMetric
-          label="Done"
-          value={number(totalActual)}
-          valueClassName={donePulse ? "text-emerald-600 drop-shadow-sm" : ""}
-          className={donePulse ? "ring-2 ring-emerald-200 bg-emerald-50" : ""}
-        />
-        <CompactMetric label="Goal" value={number(totalTarget, 1)} />
-      </div>
-
-      <div className="mt-3 rounded-3xl bg-slate-50 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-black uppercase tracking-wide text-slate-500">Add sales</div>
-          <button
-            type="button"
-            onClick={() => setAddSalesOpen((value) => !value)}
-            className="rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-card transition hover:bg-indigo-700 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
-          >
-            {addSalesOpen ? "Close" : "Add Sales"}
-          </button>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-bold text-slate-500 dark:text-slate-400">{dayHelpText}</p>
+          <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-500 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+            {today.dayType === "off" ? "Bonus" : remaining <= 0 ? "Covered" : `${number(remaining, 1)} left`}
+          </span>
         </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setAddSalesOpen((value) => !value)}
+        className={
+          addSalesOpen
+            ? "mt-4 inline-flex min-h-10 items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white transition hover:bg-slate-800 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:bg-slate-50 dark:text-slate-950"
+            : "mt-4 flex min-h-16 w-full items-center justify-center gap-2 rounded-[1.5rem] bg-gradient-to-r from-indigo-600 to-emerald-600 px-5 py-4 text-base font-black text-white shadow-lg shadow-indigo-200/60 transition hover:from-indigo-700 hover:to-emerald-700 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:shadow-none sm:max-w-sm"
+        }
+      >
+        {!addSalesOpen && <PlusCircle size={20} />}
+        {addSalesOpen ? "Close" : "Add Sales"}
+      </button>
+
+      <div className={`${addSalesOpen ? "mt-3" : "mt-0"} rounded-[1.75rem] ${addSalesOpen ? "border-2 border-indigo-100 bg-indigo-50/60 p-2 dark:border-slate-700 dark:bg-slate-950" : ""}`}>
         {addSalesOpen && (
-          <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+          <div className="rounded-[1.35rem] bg-white p-3 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Log sales</div>
+              <div className="text-xs font-bold text-slate-400">{selectedBlock?.name || "Choose block"}</div>
+            </div>
             <div className="text-xs font-black uppercase tracking-wide text-slate-400">Block</div>
             <div className="flex flex-wrap gap-1.5">
               {visibleBlocks.map((block) => {
@@ -1637,7 +1650,7 @@ function TodaySalesCard({ command, onSaveDay }) {
                     type="button"
                     onClick={() => setSelectedBlockKey(block.key)}
                     className={`flex min-h-10 items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-black transition active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 ${
-                      selected ? "bg-slate-950 text-white shadow-card" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      selected ? "bg-slate-950 text-white shadow-card dark:bg-slate-50 dark:text-slate-950" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                     }`}
                   >
                     <Icon size={14} />
@@ -1657,7 +1670,7 @@ function TodaySalesCard({ command, onSaveDay }) {
                     type="button"
                     onClick={() => setSaleType(option.key)}
                     className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-black transition active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 ${
-                      selected ? "bg-indigo-600 text-white shadow-card ring-2 ring-indigo-200" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      selected ? "bg-indigo-600 text-white shadow-card ring-2 ring-indigo-200" : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                     }`}
                   >
                     <Icon size={16} />
@@ -1674,7 +1687,7 @@ function TodaySalesCard({ command, onSaveDay }) {
                   type="button"
                   onClick={() => setLogAmount(amount)}
                   className={`min-h-10 rounded-xl text-sm font-black transition active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${
-                    Number(logAmount) === amount ? "bg-emerald-600 text-white shadow-card ring-2 ring-emerald-200" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    Number(logAmount) === amount ? "bg-emerald-600 text-white shadow-card ring-2 ring-emerald-200" : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                   }`}
                 >
                   {amount}
@@ -1688,7 +1701,7 @@ function TodaySalesCard({ command, onSaveDay }) {
                 min="1"
                 value={logAmount}
                 onChange={(event) => setLogAmount(Math.max(1, Number(event.target.value || 1)))}
-                className="min-h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-center font-black outline-none focus:border-emerald-400"
+                className="min-h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-center font-black outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-50"
               />
               <button
                 type="button"
@@ -1706,13 +1719,18 @@ function TodaySalesCard({ command, onSaveDay }) {
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={() => setShowAllBlocks((value) => !value)}
-        className="mt-3 w-full rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-200 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
-      >
-        {showAllBlocks ? "Hide full day" : "View full day"}
-      </button>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+        <button
+          type="button"
+          onClick={() => setShowAllBlocks((value) => !value)}
+          className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          {showAllBlocks ? "Hide full day" : "View full day"}
+        </button>
+        <button type="button" onClick={clearToday} className="text-xs font-black text-red-500 underline-offset-4 transition hover:text-red-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300">
+          Clear day
+        </button>
+      </div>
 
       {showAllBlocks && (
       <div className="mt-3 grid gap-2">
@@ -1762,11 +1780,6 @@ function TodaySalesCard({ command, onSaveDay }) {
         })}
       </div>
       )}
-      <div className="mt-3">
-        <button type="button" onClick={clearToday} className="w-full rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-700 transition hover:bg-red-100 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300">
-          Clear day
-        </button>
-      </div>
     </section>
   );
 }
@@ -2071,22 +2084,34 @@ function ThemeToggle({ theme, onToggle }) {
 }
 
 function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
-  const currentWeek = command.weeks.find((week) => week.week_start === command.currentWeek.week_start && week.week_end === command.currentWeek.week_end) || command.currentWeek;
+  const indexedWeeks = command.weeks.map((week, index) => ({ ...week, seasonWeekNumber: index + 1 }));
+  const currentWeek =
+    indexedWeeks.find((week) => week.week_start === command.currentWeek.week_start && week.week_end === command.currentWeek.week_end) ||
+    { ...command.currentWeek, seasonWeekNumber: Math.max(1, indexedWeeks.findIndex((week) => week.week_start <= command.today && week.week_end >= command.today) + 1) };
+  const currentWeekIndex = Math.max(0, indexedWeeks.findIndex((week) => week.week_start === currentWeek.week_start && week.week_end === currentWeek.week_end));
+  const visibleWeeks = indexedWeeks.slice(Math.max(0, currentWeekIndex - 4), Math.min(indexedWeeks.length, currentWeekIndex + 5));
   const [showWeekEditor, setShowWeekEditor] = useState(false);
   const stats = statsPageSummary(command, currentWeek);
   return (
-    <div className="mx-auto grid max-w-6xl gap-5">
-      <StatsTotals stats={stats} />
-      <SeasonStatsProgress command={command} />
-      <WeeklyOverviewGraph weeks={command.weeks} />
-      <WeeklyOverviewList weeks={command.weeks} />
+    <div className="mx-auto grid max-w-6xl gap-4 md:gap-5">
+      <PageIntro
+        eyebrow="Week Planner"
+        title="Weekly progress"
+        description="See this week, the recent trend, and the next few goals coming up."
+      />
+      <CurrentWeekSummary week={currentWeek} command={command} />
+      <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-stretch">
+        <StatsTotals stats={stats} />
+        <WeeklyOverviewGraph weeks={visibleWeeks} />
+      </section>
+      <WeeklyOverviewList weeks={visibleWeeks} />
       <Card title="Week goals" icon={Edit3} compact>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm font-bold text-slate-500">Week editing is tucked away for now so the stats stay easy to scan.</p>
           <button
             type="button"
             onClick={() => setShowWeekEditor((value) => !value)}
-            className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white"
+            className="app-primary-button px-4 py-3 text-sm"
           >
             {showWeekEditor ? "Hide week goals" : "Edit week goals"}
           </button>
@@ -2103,31 +2128,47 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
   );
 }
 
-function StatsTotals({ stats }) {
+function CurrentWeekSummary({ week, command }) {
+  const progress = Number(week.progress || 0);
+  const remaining = Math.max(0, Number(week.weekly_goal || 0) - Number(week.actual || 0));
+  const message =
+    remaining <= 0
+      ? "Goal met. Everything else is bonus."
+      : command.requiredThisWeek > command.plan.max_sales_per_day
+        ? `${number(remaining, 1)} left. This week is above your max daily pace.`
+        : `${number(remaining, 1)} sales left this week.`;
   return (
-    <Card title="Sales Stats" icon={BarChart3}>
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-        <StatTile label="Week Total" value={`${number(stats.week.actual)} / ${number(stats.week.goal)}`} detail={`${number(stats.week.progress, 0)}% of goal`} />
-        <StatTile label="Month Total" value={number(stats.month.actual)} detail={stats.month.goal ? `${number(stats.month.goal)} monthly goal` : "Current month sales"} />
-        <StatTile label="Season Total" value={`${number(stats.season.actual)} / ${number(stats.season.goal)}`} detail={`${number(stats.season.progress, 0)}% complete`} />
-        <StatTile label="Incentives Met" value={`${number(stats.incentives.met)} / ${number(stats.incentives.total)}`} detail="Achieved or claimed" />
+    <Card title={`Week ${week.seasonWeekNumber || ""}`} icon={Calendar} compact>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-bold text-slate-500">{formatRange(week.week_start, week.week_end)}</div>
+          <div className="mt-1 text-3xl font-black text-slate-950 dark:text-slate-50">
+            {number(week.actual)} / {number(week.weekly_goal)}
+          </div>
+          <div className="mt-1 text-sm font-bold text-slate-500">{message}</div>
+        </div>
+        <Badge tone={remaining <= 0 ? "ahead" : command.requiredThisWeek > command.plan.max_sales_per_day ? "critical" : "on_track"}>
+          {remaining <= 0 ? "Goal met" : "Active"}
+        </Badge>
+      </div>
+      <Progress value={progress} />
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <MiniMetric label="Days left" value={number(week.remainingCapacity, 1)} />
+        <MiniMetric label="Needed / day" value={number(week.requiredPerDay, 1)} />
       </div>
     </Card>
   );
 }
 
-function SeasonStatsProgress({ command }) {
-  const progress = command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0;
+function StatsTotals({ stats }) {
   return (
-    <Card title="Season progress" icon={Target} compact>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-3xl font-black text-slate-950 dark:text-slate-50">{number(command.completed)} / {number(command.plan.total_goal)}</div>
-          <div className="mt-1 text-sm font-black text-slate-500">season sales</div>
-        </div>
-        <div className="text-2xl font-black text-indigo-600">{number(progress, 0)}%</div>
+    <Card title="Sales Stats" icon={BarChart3}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <StatTile label="Week Total" value={`${number(stats.week.actual)} / ${number(stats.week.goal)}`} detail={`${number(stats.week.progress, 0)}% of goal`} />
+        <StatTile label="Month Total" value={number(stats.month.actual)} detail={stats.month.goal ? `${number(stats.month.goal)} monthly goal` : "Current month sales"} />
+        <StatTile label="Season Total" value={`${number(stats.season.actual)} / ${number(stats.season.goal)}`} detail={`${number(stats.season.progress, 0)}% complete`} />
+        <StatTile label="Incentives Met" value={`${number(stats.incentives.met)} / ${number(stats.incentives.total)}`} detail="Achieved or claimed" />
       </div>
-      <Progress value={progress} />
     </Card>
   );
 }
@@ -2142,7 +2183,7 @@ function WeeklyOverviewGraph({ weeks }) {
           Log more sales to see your weekly trend.
         </div>
       ) : (
-        <div className="h-64 sm:h-72 md:h-80">
+        <div className="h-56 sm:h-64 lg:h-72">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -2163,15 +2204,20 @@ function WeeklyOverviewGraph({ weeks }) {
 function WeeklyOverviewList({ weeks }) {
   return (
     <Card title="Weekly overview" icon={Calendar} compact>
-      <div className="grid gap-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {weeks.map((week) => {
           const progress = Number(week.progress || 0);
           const badge = weeklyAchievement(progress / 100, week.weekly_goal);
+          const isFuture = week.week_start > todayISO();
           return (
-            <div key={`${week.week_start}-${week.week_end}-${week.id || ""}`} className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <div
+              key={`${week.week_start}-${week.week_end}-${week.id || ""}`}
+              className={`rounded-2xl border p-3 shadow-sm dark:bg-slate-900 ${weeklyOverviewCardClass(badge?.label, isFuture)}`}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-black text-slate-950 dark:text-slate-50">{formatRange(week.week_start, week.week_end)}</div>
+                  <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Week {week.seasonWeekNumber}</div>
+                  <div className="mt-1 truncate text-sm font-black text-slate-950 dark:text-slate-50">{formatRange(week.week_start, week.week_end)}</div>
                   <div className="mt-1 text-xs font-bold text-slate-500">
                     {number(week.actual)} / {number(week.weekly_goal)} sales
                   </div>
@@ -2215,9 +2261,18 @@ function statsPageSummary(command, currentWeek) {
   };
 }
 
+function weeklyOverviewCardClass(label, isFuture) {
+  if (isFuture) return "border-indigo-100 bg-indigo-50/40 dark:border-indigo-400/20";
+  if (label === "Diamond") return "border-cyan-200 bg-cyan-50/70 dark:border-cyan-300/30";
+  if (label === "Gold") return "border-yellow-300 bg-yellow-50/80 dark:border-yellow-200/40";
+  if (label === "Silver") return "border-slate-300 bg-slate-50 dark:border-slate-500";
+  if (label === "Bronze") return "border-[#d69a5b]/50 bg-[#fff7ed] dark:border-[#d69a5b]/40";
+  return "border-slate-200 bg-white dark:border-slate-700";
+}
+
 function weeklyGraphData(weeks) {
   return weeks.map((week, index) => ({
-    label: `W${index + 1}`,
+    label: `W${week.seasonWeekNumber || index + 1}`,
     actual: Number(week.actual || 0),
     goal: Number(week.weekly_goal || 0),
   }));
@@ -2251,7 +2306,12 @@ function GoalsPage({ workspace, command, savePlan }) {
   }
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-4">
+    <div className="mx-auto grid max-w-5xl gap-4 md:gap-5">
+      <PageIntro
+        eyebrow="Goals"
+        title="Sales goals and dates"
+        description="Review your plan at a glance. Use Edit Goals when you need to change the numbers."
+      />
       <SettingsBlock title="Sales Plan" description="Review the core goals and dates for this season." icon={Target}>
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm font-bold text-slate-500">
@@ -2261,7 +2321,7 @@ function GoalsPage({ workspace, command, savePlan }) {
             type="button"
             onClick={editing ? cancelEdit : () => setEditing(true)}
             disabled={saving}
-            className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+            className={`${editing ? "app-secondary-button" : "app-primary-button"} px-5 py-3 text-sm`}
           >
             {editing ? "Cancel" : "Edit Goals"}
           </button>
@@ -2332,12 +2392,6 @@ function GoalsPage({ workspace, command, savePlan }) {
           </div>
         )}
       </SettingsBlock>
-
-      <SettingsBlock title="Coach" description="Plan optimization will live here later." icon={Sparkles}>
-        <div className="rounded-3xl bg-indigo-50 p-4 text-sm font-bold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200">
-          Future coach tools will help rebalance goals, workdays, and catch-up plans from this page.
-        </div>
-      </SettingsBlock>
     </div>
   );
 }
@@ -2345,34 +2399,68 @@ function GoalsPage({ workspace, command, savePlan }) {
 function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) {
   const [editingReward, setEditingReward] = useState(null);
   const rewards = dedupeById(command.incentives).filter((item) => String(item.title || "").trim());
+  const achievedCount = rewards.filter((item) => item.status === "achieved" || item.status === "claimed").length;
+  const nextReward = command.nextIncentive;
   return (
-    <div className="mx-auto grid max-w-6xl gap-5">
-      <Card title="Rewards" icon={Gift}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="max-w-2xl text-sm font-bold text-slate-500">
-            Keep this simple: set a reward, pick the goal number, and let the app track progress.
-          </p>
-          <button type="button" onClick={() => setEditingReward(newIncentive(workspace.plan.id))} className="rounded-2xl bg-purple-600 px-5 py-3 font-black text-white">
-            Add Reward
-          </button>
-        </div>
-        {!rewards.length && (
-          <div className="mt-5 rounded-3xl bg-purple-50 p-5 text-sm font-bold text-purple-800">
-            No rewards yet. Add your first reward to make hitting your goals more fun.
+    <div className="mx-auto grid max-w-6xl gap-4 md:gap-5">
+      <PageIntro
+        eyebrow="Incentives"
+        title="Rewards"
+        description="Set a few clean milestones and let the app track progress automatically."
+      />
+      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+        <Card title="Reward Summary" icon={Gift} compact className="incentive-outline">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <StatTile label="Rewards" value={`${number(achievedCount)} / ${number(rewards.length)}`} detail="Achieved or claimed" />
+            <StatTile
+              label="Next Reward"
+              value={nextReward ? nextReward.title : "None yet"}
+              detail={nextReward ? `${number(Math.max(0, nextReward.target - nextReward.current), 1)} away` : "Add one to track progress"}
+            />
+          </div>
+        </Card>
+        <Card title="Reward Setup" icon={PlusCircle} compact className="incentive-outline">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-500">
+              Set rewards for milestones, weekly wins, streaks, or the full season.
+            </p>
+            {!rewards.length && (
+              <div className="mt-4 rounded-3xl bg-purple-50 p-4 text-sm font-bold text-purple-800 dark:bg-purple-950/30 dark:text-purple-100">
+                No rewards yet. Add your first reward to make hitting your goals more fun.
+              </div>
+            )}
+            <div className="mt-4 rounded-3xl bg-purple-50/70 p-2 ring-1 ring-purple-100 dark:bg-purple-950/20 dark:ring-purple-800/50">
+              <button
+                type="button"
+                onClick={() => setEditingReward(newIncentive(workspace.plan.id))}
+                disabled={Boolean(editingReward)}
+                className="min-h-12 w-full rounded-2xl bg-purple-600 px-5 py-3 text-sm font-black text-white shadow-card transition hover:bg-purple-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Add Reward
+              </button>
+            </div>
+          </div>
+        </Card>
+      </div>
+      <Card title="Saved Rewards" icon={Trophy} compact className="incentive-outline">
+        {rewards.length ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {rewards.map((item) => (
+              <RewardCard
+                key={item.id}
+                incentive={item}
+                onEdit={() => setEditingReward(item)}
+                onClaim={() => saveIncentive({ ...item, status: "claimed" })}
+                onDelete={() => removeIncentive(item.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-3xl bg-slate-50 p-5 text-sm font-bold text-slate-500 dark:bg-slate-950">
+            Your saved rewards will show here.
           </div>
         )}
       </Card>
-      <div className="grid gap-4 md:grid-cols-2">
-        {rewards.map((item) => (
-          <RewardCard
-            key={item.id}
-            incentive={item}
-            onEdit={() => setEditingReward(item)}
-            onClaim={() => saveIncentive({ ...item, status: "claimed" })}
-            onDelete={() => removeIncentive(item.id)}
-          />
-        ))}
-      </div>
       {editingReward && (
         <RewardModal
           incentive={editingReward}
@@ -2387,39 +2475,49 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
   );
 }
 
+function IncentivePanel({ title, icon: Icon, children }) {
+  return (
+    <section className="incentive-outline rounded-[2rem] p-4 md:p-5">
+      <div className="mb-3 flex items-center gap-3">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-purple-600 text-white shadow-sm">
+          <Icon size={19} />
+        </div>
+        <h2 className="text-lg font-black text-slate-950 dark:text-slate-50">{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function RewardCard({ incentive, onEdit, onClaim, onDelete }) {
   return (
-    <div className="overflow-hidden rounded-[2rem] bg-white shadow-card">
-      <div className="bg-gradient-to-br from-purple-600 to-amber-400 p-1">
-        <div className="rounded-[1.75rem] bg-white p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="break-words text-2xl font-black">{incentive.title}</div>
-              <div className="mt-2 text-sm font-bold capitalize text-slate-500">{incentive.incentive_type.replaceAll("_", " ")}</div>
-            </div>
-            <Badge tone={incentive.status === "achieved" ? "ahead" : incentive.status === "locked" ? "neutral" : "on_track"}>
-              {incentive.status.replaceAll("_", " ")}
-            </Badge>
-          </div>
-          <Progress value={incentive.progress} tone="purple" />
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm font-bold text-slate-500">
-            <span>{number(incentive.current, 1)} / {number(incentive.target, 1)}</span>
-            <span>{percent(incentive.progress)}</span>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" onClick={onEdit} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black">
-              Edit
-            </button>
-            {incentive.status === "achieved" && (
-              <button type="button" onClick={onClaim} className="rounded-2xl bg-purple-600 px-4 py-3 text-sm font-black text-white">
-                Claim
-              </button>
-            )}
-            <button type="button" onClick={onDelete} className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-700">
-              Delete
-            </button>
-          </div>
+    <div className="incentive-outline rounded-[1.5rem] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="break-words text-xl font-black text-slate-950 dark:text-slate-50">{incentive.title}</div>
+          <div className="mt-1 text-sm font-bold capitalize text-slate-500">{incentive.incentive_type.replaceAll("_", " ")}</div>
         </div>
+        <Badge tone={incentive.status === "achieved" ? "ahead" : incentive.status === "locked" ? "neutral" : "on_track"}>
+          {incentive.status.replaceAll("_", " ")}
+        </Badge>
+      </div>
+      <Progress value={incentive.progress} tone="purple" />
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm font-bold text-slate-500">
+        <span>{number(incentive.current, 1)} / {number(incentive.target, 1)}</span>
+        <span>{percent(incentive.progress)}</span>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" onClick={onEdit} className="app-secondary-button px-4 py-3 text-sm">
+          Edit
+        </button>
+        {incentive.status === "achieved" && (
+          <button type="button" onClick={onClaim} className="rounded-2xl bg-purple-600 px-4 py-3 text-sm font-black text-white transition hover:bg-purple-700 active:scale-[0.98]">
+            Claim
+          </button>
+        )}
+        <button type="button" onClick={onDelete} className="app-danger-button px-4 py-3 text-sm">
+          Delete
+        </button>
       </div>
     </div>
   );
@@ -2430,20 +2528,25 @@ function RewardModal({ incentive, onSave, onClose }) {
   const [more, setMore] = useState(Boolean(incentive.description || incentive.reward_value || incentive.target_date));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const submitLock = useRef(false);
 
   async function submit(event) {
     event.preventDefault();
-    if (isSubmitting) return;
-    const title = String(draft.title || "").trim();
-    if (!title) {
-      setFormError("Reward name is required.");
+    if (submitLock.current) return;
+    let payload;
+    try {
+      payload = normalizeIncentiveDraft(draft, incentive.plan_id);
+    } catch (err) {
+      setFormError(err.message);
       return;
     }
+    submitLock.current = true;
     setIsSubmitting(true);
     setFormError("");
     try {
-      await onSave({ ...draft, title });
+      await onSave(payload);
     } catch (err) {
+      submitLock.current = false;
       setFormError(err.message);
       setIsSubmitting(false);
     }
@@ -2451,13 +2554,13 @@ function RewardModal({ incentive, onSave, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/45 sm:place-items-center">
-      <form onSubmit={submit} className="max-h-[92vh] w-full overflow-auto rounded-t-[2rem] bg-white p-5 shadow-glow sm:max-w-xl sm:rounded-[2rem] md:max-w-2xl md:p-6">
+      <form onSubmit={submit} className="max-h-[92vh] w-full overflow-auto rounded-t-[2rem] bg-white p-5 shadow-glow dark:bg-slate-900 sm:max-w-xl sm:rounded-[2rem] md:p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-black uppercase tracking-wide text-purple-600">Reward</div>
-            <h2 className="text-2xl font-black">{draft.id ? "Edit reward" : "Add reward"}</h2>
+            <h2 className="text-2xl font-black text-slate-950 dark:text-slate-50">{draft.id ? "Edit reward" : "Add reward"}</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-2xl bg-slate-100 px-4 py-2 font-black">
+          <button type="button" onClick={onClose} disabled={isSubmitting} className="app-secondary-button px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60">
             Cancel
           </button>
         </div>
@@ -2478,7 +2581,7 @@ function RewardModal({ incentive, onSave, onClose }) {
           />
           <Field label="Reward goal" type="number" value={draft.target_value} onChange={(v) => setDraft({ ...draft, target_value: v })} />
         </div>
-        <button type="button" onClick={() => setMore((value) => !value)} className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700">
+        <button type="button" onClick={() => setMore((value) => !value)} className="app-secondary-button mt-4 px-4 py-3 text-sm">
           {more ? "Hide more options" : "More options"}
         </button>
         {more && (
@@ -2547,7 +2650,12 @@ function SettingsPage({ user, workspace, saveSettings, savePlan, onSendPasswordR
   }
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-4">
+    <div className="mx-auto grid max-w-6xl gap-4 md:gap-5">
+      <PageIntro
+        eyebrow="Settings"
+        title="App settings"
+        description="Manage preferences, schedule assumptions, account safety, and reset controls."
+      />
       <SettingsBlock title="Plan basics" description="Your main plan targets and default weekly pace." icon={Target}>
         <div className="grid gap-3 sm:grid-cols-2">
           <SettingsSummary label="Plan name" value={workspace.plan.name} />
@@ -2559,7 +2667,7 @@ function SettingsPage({ user, workspace, saveSettings, savePlan, onSendPasswordR
             <button
               type="button"
               onClick={() => savePlan({ default_weekly_goal: Number(defaultWeeklyGoal || 0) })}
-              className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white"
+              className="app-primary-button px-4 py-3 text-sm"
             >
               Save default weekly goal
             </button>
@@ -2603,10 +2711,10 @@ function SettingsPage({ user, workspace, saveSettings, savePlan, onSendPasswordR
           ))}
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" onClick={() => saveSettings({ time_blocks_config: blocks })} className="rounded-2xl bg-slate-950 px-5 py-3 font-black text-white">
+          <button type="button" onClick={() => saveSettings({ time_blocks_config: blocks })} className="app-primary-button">
             Save time blocks
           </button>
-          <button type="button" onClick={() => setBlocks(defaultTimeBlocks)} className="rounded-2xl border border-slate-200 px-5 py-3 font-black text-slate-600">
+          <button type="button" onClick={() => setBlocks(defaultTimeBlocks)} className="app-secondary-button">
             Reset defaults
           </button>
         </div>
@@ -2702,10 +2810,20 @@ function SettingsPage({ user, workspace, saveSettings, savePlan, onSendPasswordR
   );
 }
 
+function PageIntro({ eyebrow, title, description }) {
+  return (
+    <div className="max-w-3xl">
+      <div className="text-sm font-black uppercase tracking-wide text-indigo-600 dark:text-indigo-300">{eyebrow}</div>
+      <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950 dark:text-slate-50 md:text-3xl">{title}</h2>
+      {description && <p className="mt-2 text-sm font-bold leading-6 text-slate-500 dark:text-slate-400">{description}</p>}
+    </div>
+  );
+}
+
 function SettingsBlock({ title, description, icon: Icon, children, tone = "default" }) {
   const iconClass = tone === "danger" ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-200" : "bg-slate-950 text-white dark:bg-slate-100 dark:text-slate-950";
   return (
-    <section className="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900 md:p-5">
+    <section className="app-card">
       <div className="mb-5 flex items-start gap-3">
         <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${iconClass}`}>
           <Icon size={20} />
@@ -2722,7 +2840,7 @@ function SettingsBlock({ title, description, icon: Icon, children, tone = "defau
 
 function SettingsSummary({ label, value }) {
   return (
-    <div className="rounded-3xl bg-slate-50 p-4 dark:bg-slate-950">
+    <div className="app-secondary-surface">
       <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
       <div className="mt-1 break-words text-lg font-black text-slate-950 dark:text-slate-50">{value}</div>
     </div>
@@ -2891,14 +3009,14 @@ function CoachCard({ command }) {
   );
 }
 
-function Card({ title, icon: Icon, children, compact = false }) {
+function Card({ title, icon: Icon, children, compact = false, className = "" }) {
   return (
-    <section className={`glass-card rounded-3xl ${compact ? "p-4" : "p-5"}`}>
+    <section className={`app-card ${compact ? "p-4" : "p-5"} ${className}`}>
       <div className={`${compact ? "mb-3" : "mb-5"} flex items-center gap-3`}>
-        <div className={`${compact ? "h-10 w-10" : "h-11 w-11"} grid place-items-center rounded-2xl bg-slate-950 text-white`}>
+        <div className={`${compact ? "h-10 w-10" : "h-11 w-11"} app-icon`}>
           <Icon size={20} />
         </div>
-        <h2 className={`${compact ? "text-lg" : "text-xl"} font-black`}>{title}</h2>
+        <h2 className={`${compact ? "text-lg" : "text-xl"} font-black text-slate-950 dark:text-slate-50`}>{title}</h2>
       </div>
       {children}
     </section>
@@ -2922,17 +3040,17 @@ function Section({ title, icon: Icon, children }) {
 function Field({ label, value, onChange, type = "text", options = [], required = false }) {
   return (
     <label className="grid gap-2">
-      <span className="text-sm font-black text-slate-600">{label}</span>
+      <span className="text-sm font-black text-slate-600 dark:text-slate-300">{label}</span>
       {type === "select" ? (
-        <select value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="min-h-12 rounded-2xl border border-slate-200 bg-white px-4 font-bold outline-none focus:border-indigo-400">
+        <select value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="app-field">
           {options.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
       ) : type === "textarea" ? (
-        <textarea value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="min-h-28 rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold outline-none focus:border-indigo-400" />
+        <textarea value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="app-field app-textarea" />
       ) : (
-        <input required={required} type={type} value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="min-h-12 rounded-2xl border border-slate-200 bg-white px-4 font-bold outline-none focus:border-indigo-400" />
+        <input required={required} type={type} value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="app-field" />
       )}
     </label>
   );
@@ -2940,7 +3058,7 @@ function Field({ label, value, onChange, type = "text", options = [], required =
 
 function Toggle({ label, checked, onChange }) {
   return (
-    <label className="mt-5 flex items-center gap-3 rounded-2xl bg-slate-50 p-4 font-bold text-slate-700">
+    <label className="mt-5 flex items-center gap-3 rounded-2xl bg-slate-50 p-4 font-bold text-slate-700 dark:bg-slate-950 dark:text-slate-200">
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-5 w-5 accent-indigo-600" />
       {label}
     </label>
@@ -2981,7 +3099,7 @@ function Badge({ tone = "neutral", children }) {
 function Progress({ value, tone = "blue" }) {
   const color = tone === "purple" ? "bg-purple-500" : tone === "white" ? "bg-white" : tone === "slate" ? "bg-slate-300" : "bg-indigo-600";
   return (
-    <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100">
+    <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
       <div className={`progress-shine h-full rounded-full ${color} transition-all duration-500`} style={{ width: percent(value) }} />
     </div>
   );
@@ -2998,9 +3116,9 @@ function Metric({ label, value }) {
 
 function MiniMetric({ label, value }) {
   return (
-    <div className="rounded-2xl bg-slate-50 p-3">
+    <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-950">
       <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="mt-1 text-lg font-black">{value}</div>
+      <div className="mt-1 text-lg font-black text-slate-950 dark:text-slate-50">{value}</div>
     </div>
   );
 }
@@ -3017,9 +3135,9 @@ function StatTile({ label, value, detail }) {
 
 function CompactMetric({ label, value, className = "", valueClassName = "" }) {
   return (
-    <div className={`rounded-2xl bg-slate-50 px-3 py-3 transition-all duration-500 ${className}`}>
+    <div className={`rounded-2xl bg-slate-50 px-3 py-3 transition-all duration-500 dark:bg-slate-950 ${className}`}>
       <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={`mt-1 text-2xl font-black transition-colors duration-500 ${valueClassName}`}>{value}</div>
+      <div className={`mt-1 text-2xl font-black text-slate-950 transition-colors duration-500 dark:text-slate-50 ${valueClassName}`}>{value}</div>
     </div>
   );
 }
@@ -3301,13 +3419,36 @@ function normalizePlanDraft(draft) {
   };
 }
 
+function normalizeIncentiveDraft(incentive, planId) {
+  const title = String(incentive.title || "").trim();
+  const target = parseNumericInput(incentive.target_value);
+  const rewardValue = optionalNumber(incentive.reward_value);
+  if (!title) throw new Error("Reward name is required.");
+  if (!Number.isFinite(target) || target <= 0) throw new Error("Reward goal must be greater than 0.");
+  if (!isBlank(incentive.reward_value) && (!Number.isFinite(rewardValue) || rewardValue < 0)) {
+    throw new Error("Reward value must be 0 or higher.");
+  }
+  return {
+    ...(incentive.id ? { id: incentive.id } : {}),
+    plan_id: planId || incentive.plan_id,
+    title,
+    description: String(incentive.description || "").trim(),
+    incentive_type: incentive.incentive_type || "sales_milestone",
+    target_value: target,
+    target_date: incentive.target_date || null,
+    related_goal_period_id: incentive.related_goal_period_id || null,
+    reward_value: rewardValue,
+    status: incentive.status || "locked",
+  };
+}
+
 function newIncentive(planId) {
   return {
     plan_id: planId,
-    title: "New reward",
+    title: "",
     description: "",
     incentive_type: "sales_milestone",
-    target_value: 25,
+    target_value: "",
     reward_value: "",
     status: "locked",
   };
