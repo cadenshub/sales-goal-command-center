@@ -83,6 +83,7 @@ export async function loadCriticalWorkspace(userId) {
     calendarDays: calendarDays || [],
     salesEntries: salesEntries || [],
     timeBlockEntries: timeBlockEntries || [],
+    salesConfirmations: [],
     weeklyConfirmations: [],
     incentives: [],
     savedFilters: [],
@@ -91,9 +92,10 @@ export async function loadCriticalWorkspace(userId) {
 }
 
 export async function loadOptionalWorkspace(planId) {
-  const [weeks, goalPeriods, weeklyConfirmations, incentives, savedFilters] = await Promise.all([
+  const [weeks, goalPeriods, salesConfirmations, weeklyConfirmations, incentives, savedFilters] = await Promise.all([
     optionalQuery("weeks", supabase.from("weeks").select("*").eq("plan_id", planId).order("week_start"), []),
     optionalQuery("goal_periods", supabase.from("goal_periods").select("*").eq("plan_id", planId).order("start_date"), []),
+    optionalQuery("sales_confirmations", supabase.from("sales_confirmations").select("*").eq("plan_id", planId).order("date"), []),
     optionalQuery("weekly_confirmations", supabase.from("weekly_confirmations").select("*").eq("plan_id", planId).order("week_start"), []),
     optionalQuery("incentives", supabase.from("incentives").select("*").eq("plan_id", planId).order("target_value"), []),
     optionalQuery("saved_filters", supabase.from("saved_filters").select("*").eq("plan_id", planId).order("created_at"), []),
@@ -102,6 +104,7 @@ export async function loadOptionalWorkspace(planId) {
   return {
     weeks: weeks || [],
     goalPeriods: goalPeriods || [],
+    salesConfirmations: salesConfirmations || [],
     weeklyConfirmations: weeklyConfirmations || [],
     incentives: incentives || [],
     savedFilters: savedFilters || [],
@@ -154,6 +157,16 @@ export async function upsertWeeklyConfirmation(confirmation) {
   const { data, error } = await supabase
     .from("weekly_confirmations")
     .upsert(confirmation, { onConflict: "plan_id,week_start,week_end" })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function upsertSalesConfirmation(confirmation) {
+  const { data, error } = await supabase
+    .from("sales_confirmations")
+    .upsert(confirmation, { onConflict: "plan_id,date" })
     .select()
     .single();
   if (error) throw error;

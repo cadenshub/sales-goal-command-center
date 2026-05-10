@@ -84,6 +84,7 @@ export function buildCommandCenter(workspace) {
   const timeBlockEntries = workspace.timeBlockEntries || [];
   const timeBlocksByDate = groupTimeBlocks(timeBlockEntries);
   const weeklyConfirmationsByRange = groupWeeklyConfirmations(workspace.weeklyConfirmations || []);
+  const salesConfirmationsByDate = Object.fromEntries((workspace.salesConfirmations || []).map((item) => [item.date, item]));
   const dayOverrides = Object.fromEntries((workspace.calendarDays || []).map((day) => [day.date, day]));
   const normalWorkdays = settings.normal_workdays || [1, 2, 3, 4, 5, 6];
   const timeBlocksConfig = normalizeTimeBlocks(settings.time_blocks_config);
@@ -208,6 +209,8 @@ export function buildCommandCenter(workspace) {
     todayPlan,
     weeks,
     weeklyConfirmationsByRange,
+    salesConfirmations: workspace.salesConfirmations || [],
+    salesConfirmationsByDate,
     incentives,
     nextIncentive,
     currentWeek,

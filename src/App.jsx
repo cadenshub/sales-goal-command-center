@@ -53,6 +53,7 @@ import {
   upsertCalendarDay,
   upsertIncentive,
   upsertSalesEntry,
+  upsertSalesConfirmation,
   upsertSettings,
   upsertTimeBlockEntries,
   upsertWeeklyConfirmation,
@@ -355,6 +356,7 @@ export default function App() {
               saveWeek={saveWeek}
               removeWeek={removeWeek}
               saveDay={saveDay}
+              saveSalesConfirmation={saveSalesConfirmation}
               saveWeeklyConfirmation={saveWeeklyConfirmation}
             />
           )}
@@ -534,6 +536,26 @@ export default function App() {
     );
   }
 
+  async function saveSalesConfirmation(date, draft) {
+    const confirmed = Math.max(0, Number(draft.confirmed_sales || 0));
+    const cancelled = Math.max(0, Number(draft.cancelled_sales || 0));
+    const payload = {
+      ...(draft.id ? { id: draft.id } : {}),
+      plan_id: workspace.plan.id,
+      date,
+      confirmed_sales: confirmed,
+      cancelled_sales: cancelled,
+      notes: draft.notes || "",
+    };
+    await saveAndPatch(
+      (current) => ({ ...current, salesConfirmations: upsertLocalByDate(current.salesConfirmations || [], payload) }),
+      async () => {
+        const saved = await upsertSalesConfirmation(payload);
+        setWorkspace((current) => ({ ...current, salesConfirmations: upsertLocalByDate(current.salesConfirmations || [], saved) }));
+      },
+    );
+  }
+
   async function removeWeek(id) {
     if (!window.confirm("Delete this weekly override?")) return;
     await saveAndPatch(
@@ -628,6 +650,7 @@ function mergeOptionalWorkspace(current, optional) {
     ...optional,
     weeks: mergeByStableKey(current.weeks, optional.weeks, (item) => item.id || `${item.week_start}:${item.week_end}`),
     goalPeriods: mergeByStableKey(current.goalPeriods, optional.goalPeriods, (item) => item.id || `${item.title}:${item.start_date}:${item.end_date}`),
+    salesConfirmations: mergeByStableKey(current.salesConfirmations, optional.salesConfirmations, (item) => item.id || item.date),
     weeklyConfirmations: mergeByStableKey(current.weeklyConfirmations, optional.weeklyConfirmations, (item) => item.id || `${item.week_start}:${item.week_end}`),
     incentives: mergeByStableKey(current.incentives, optional.incentives, (item) => item.id || item.title),
     savedFilters: mergeByStableKey(current.savedFilters, optional.savedFilters, (item) => item.id || item.title),
@@ -1795,6 +1818,8 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
   const monthEndDate = monthEnd(parseISO(anchor));
   const gridStart = toISO(weekStart(monthStartDate, weekStartDay));
   const gridEnd = toISO(weekEnd(monthEndDate, weekStartDay));
+  const monthStartKey = toISO(monthStartDate);
+  const monthEndKey = toISO(monthEndDate);
   const monthKey = anchor.slice(0, 7);
   const daysByDate = Object.fromEntries(command.dayPlans.map((day) => [day.date, day]));
   const calendarDates = datesBetween(gridStart, gridEnd);
@@ -1815,6 +1840,22 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
       return dates;
     }, {});
   }, [command.incentives]);
+  const monthConfirmationTotals = command.dayPlans.reduce(
+    (totals, day) => {
+      if (day.date < monthStartKey || day.date > monthEndKey) return totals;
+      const logged = Number(day.actual || 0);
+      const confirmation = command.salesConfirmationsByDate?.[day.date] || {};
+      const confirmed = Math.min(logged, Math.max(0, Number(confirmation.confirmed_sales || 0)));
+      const cancelled = Math.min(logged - confirmed, Math.max(0, Number(confirmation.cancelled_sales || 0)));
+      return {
+        logged: totals.logged + logged,
+        confirmed: totals.confirmed + confirmed,
+        cancelled: totals.cancelled + cancelled,
+        pending: totals.pending + Math.max(0, logged - confirmed - cancelled),
+      };
+    },
+    { logged: 0, confirmed: 0, pending: 0, cancelled: 0 },
+  );
 
   function displayDay(date) {
     const existing = daysByDate[date];
@@ -1920,6 +1961,22 @@ function CalendarPage({ command, onSelectDay, onSaveDay }) {
         {blackoutMode && (
           <div className="mt-2 rounded-2xl bg-slate-900 px-3 py-2 text-center text-xs font-bold text-white">
             Tap dates to mark vacation or non-selling days.
+          </div>
+        )}
+        {(monthConfirmationTotals.logged > 0 || monthConfirmationTotals.cancelled > 0) && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[11px] font-black sm:text-xs">
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600 dark:bg-slate-800 dark:text-slate-200">Logged: {number(monthConfirmationTotals.logged)}</span>
+            {monthConfirmationTotals.confirmed > 0 && (
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-100">Confirmed: {number(monthConfirmationTotals.confirmed)}</span>
+            )}
+            {monthConfirmationTotals.pending > 0 && (
+              <span className="rounded-full bg-slate-50 px-2.5 py-1 text-slate-500 ring-1 ring-slate-200 dark:bg-slate-800/70 dark:text-slate-300 dark:ring-slate-700">Pending: {number(monthConfirmationTotals.pending)}</span>
+            )}
+            {monthConfirmationTotals.cancelled > 0 && (
+              <span className="rounded-full bg-rose-50 px-2.5 py-1 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-100 dark:ring-rose-400/30">
+                Cancelled: -{number(monthConfirmationTotals.cancelled)}
+              </span>
+            )}
           </div>
         )}
       </section>
@@ -2085,7 +2142,7 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
+function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay, saveSalesConfirmation }) {
   const indexedWeeks = command.weeks.map((week, index) => ({ ...week, seasonWeekNumber: index + 1 }));
   const currentWeek =
     indexedWeeks.find((week) => week.week_start === command.currentWeek.week_start && week.week_end === command.currentWeek.week_end) ||
@@ -2093,6 +2150,7 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
   const currentWeekIndex = Math.max(0, indexedWeeks.findIndex((week) => week.week_start === currentWeek.week_start && week.week_end === currentWeek.week_end));
   const visibleWeeks = indexedWeeks.slice(Math.max(0, currentWeekIndex - 4), Math.min(indexedWeeks.length, currentWeekIndex + 5));
   const [showWeekEditor, setShowWeekEditor] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const stats = statsPageSummary(command, currentWeek);
   return (
     <div className="mx-auto grid max-w-6xl gap-4 md:gap-5">
@@ -2101,7 +2159,10 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
         title="Weekly progress"
         description="See this week, the recent trend, and the next few goals coming up."
       />
-      <CurrentWeekSummary week={currentWeek} command={command} />
+      <section className="grid gap-4 lg:grid-cols-[1fr_0.8fr] lg:items-stretch">
+        <CurrentWeekSummary week={currentWeek} command={command} />
+        <ConfirmSalesSummaryCard command={command} week={currentWeek} onOpen={() => setConfirmOpen(true)} />
+      </section>
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-stretch">
         <StatsTotals stats={stats} />
         <WeeklyOverviewGraph weeks={visibleWeeks} />
@@ -2126,6 +2187,185 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay }) {
           </div>
         )}
       </Card>
+      {confirmOpen && (
+        <SalesConfirmationSheet
+          command={command}
+          week={currentWeek}
+          onClose={() => setConfirmOpen(false)}
+          onSave={saveSalesConfirmation}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConfirmSalesSummaryCard({ command, week, onOpen }) {
+  const totals = weeklyConfirmationTotals(command, week);
+  const reviewed = totals.logged > 0 && totals.pending === 0;
+  return (
+    <Card title="Confirm Sales" icon={CheckCircle2} compact>
+      <div className="grid grid-cols-2 gap-2">
+        <MiniMetric label="Logged" value={number(totals.logged)} />
+        <MiniMetric label="Confirmed" value={number(totals.confirmed)} />
+        <MiniMetric label="Pending" value={number(totals.pending)} />
+        <MiniMetric label="Cancelled" value={number(totals.cancelled)} />
+      </div>
+      {reviewed && (
+        <div className="mt-3 rounded-2xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-100">
+          Week reviewed ✓
+        </div>
+      )}
+      <button type="button" onClick={onOpen} className="app-primary-button mt-4 w-full px-4 py-3 text-sm">
+        Confirm Sales
+      </button>
+    </Card>
+  );
+}
+
+function SalesConfirmationSheet({ command, week, onClose, onSave }) {
+  const rows = confirmationRowsForWeek(command, week);
+  const totals = rows.reduce(
+    (sum, row) => ({
+      logged: sum.logged + row.logged,
+      confirmed: sum.confirmed + row.confirmed,
+      cancelled: sum.cancelled + row.cancelled,
+      pending: sum.pending + row.pending,
+    }),
+    { logged: 0, confirmed: 0, cancelled: 0, pending: 0 },
+  );
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/45 sm:place-items-center">
+      <div className="max-h-[92vh] w-full overflow-auto rounded-t-[2rem] bg-white p-4 shadow-glow dark:bg-slate-900 sm:max-w-2xl sm:rounded-[2rem] md:p-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Confirm Sales</div>
+            <h2 className="text-2xl font-black text-slate-950 dark:text-slate-50">{formatRange(week.week_start, week.week_end)}</h2>
+            <p className="mt-1 text-sm font-bold text-slate-500">Review logged sales by day. Dashboard totals stay logged sales.</p>
+          </div>
+          <button type="button" onClick={onClose} className="app-secondary-button px-4 py-2 text-sm">
+            Close
+          </button>
+        </div>
+        <div className="mb-4 grid grid-cols-4 gap-2">
+          <MiniMetric label="Logged" value={number(totals.logged)} />
+          <MiniMetric label="Confirmed" value={number(totals.confirmed)} />
+          <MiniMetric label="Pending" value={number(totals.pending)} />
+          <MiniMetric label="Cancelled" value={number(totals.cancelled)} />
+        </div>
+        {totals.logged > 0 && totals.pending === 0 && (
+          <div className="mb-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-100">
+            All logged sales have been reviewed.
+          </div>
+        )}
+        <div className="grid gap-3">
+          {rows.length ? (
+            rows.map((row) => <ConfirmationDateCard key={row.date} row={row} onSave={onSave} />)
+          ) : (
+            <div className="rounded-3xl bg-slate-50 p-5 text-sm font-bold text-slate-500 dark:bg-slate-950">
+              No logged sales this week yet.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmationDateCard({ row, onSave }) {
+  const [draft, setDraft] = useState(() => ({ confirmed: row.confirmed, cancelled: row.cancelled }));
+  const [manualOpen, setManualOpen] = useState(false);
+  const [status, setStatus] = useState("idle");
+  const pending = Math.max(0, row.logged - draft.confirmed - draft.cancelled);
+  const invalid = draft.confirmed + draft.cancelled > row.logged;
+
+  useEffect(() => {
+    setDraft({ confirmed: row.confirmed, cancelled: row.cancelled });
+  }, [row.confirmed, row.cancelled]);
+
+  async function save(nextDraft = draft) {
+    const safeConfirmed = Math.max(0, Number(nextDraft.confirmed || 0));
+    const safeCancelled = Math.max(0, Number(nextDraft.cancelled || 0));
+    if (safeConfirmed + safeCancelled > row.logged || status === "saving") return;
+    setStatus("saving");
+    try {
+      await onSave(row.date, {
+        id: row.confirmation?.id,
+        confirmed_sales: safeConfirmed,
+        cancelled_sales: safeCancelled,
+        notes: row.confirmation?.notes || "",
+      });
+      setStatus("saved");
+      window.setTimeout(() => setStatus("idle"), 1200);
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  function setCount(key, value) {
+    const next = Math.max(0, Math.min(row.logged, Number(value || 0)));
+    setDraft((current) => {
+      const otherKey = key === "confirmed" ? "cancelled" : "confirmed";
+      const capped = Math.min(next, row.logged - Number(current[otherKey] || 0));
+      return { ...current, [key]: capped };
+    });
+  }
+
+  async function confirmAll() {
+    const next = { confirmed: row.logged, cancelled: 0 };
+    setDraft(next);
+    await save(next);
+  }
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-lg font-black text-slate-950 dark:text-slate-50">{formatDate(row.date, { weekday: "short", month: "short", day: "numeric" })}</div>
+          <div className="mt-1 text-sm font-bold text-slate-500">Logged: {number(row.logged)} sales</div>
+        </div>
+        {status === "saved" && <Badge tone="ahead">Confirmed ✓</Badge>}
+        {status === "error" && <Badge tone="critical">Try again</Badge>}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <MiniMetric label="Confirmed" value={number(draft.confirmed)} />
+        <MiniMetric label="Pending" value={number(pending)} />
+        <MiniMetric label="Cancelled" value={number(draft.cancelled)} />
+      </div>
+      {invalid && <div className="mt-3 text-sm font-black text-red-600">Confirmed plus cancelled cannot exceed logged sales.</div>}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" onClick={confirmAll} disabled={status === "saving" || row.logged <= 0} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
+          {status === "saving" ? "Saving..." : "Confirm all"}
+        </button>
+        <button type="button" onClick={() => setManualOpen((value) => !value)} className="app-secondary-button px-4 py-3 text-sm">
+          {manualOpen ? "Hide manual" : "Edit manually"}
+        </button>
+      </div>
+      {manualOpen && (
+        <div className="mt-4 grid gap-3 rounded-3xl bg-slate-50 p-3 dark:bg-slate-950">
+          <ConfirmationCounter label="Confirmed" value={draft.confirmed} onChange={(value) => setCount("confirmed", value)} />
+          <ConfirmationCounter label="Cancelled" value={draft.cancelled} onChange={(value) => setCount("cancelled", value)} />
+          <button type="button" onClick={() => save()} disabled={invalid || status === "saving"} className="app-primary-button px-4 py-3 text-sm">
+            {status === "saving" ? "Saving..." : "Save review"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConfirmationCounter({ label, value, onChange }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-sm font-black text-slate-600 dark:text-slate-300">{label}</span>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={() => onChange(value - 1)} className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-lg font-black text-slate-700 ring-1 ring-slate-200 active:scale-[0.98] dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-700">
+          -
+        </button>
+        <div className="min-w-10 text-center text-lg font-black text-slate-950 dark:text-slate-50">{number(value)}</div>
+        <button type="button" onClick={() => onChange(value + 1)} className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-lg font-black text-slate-700 ring-1 ring-slate-200 active:scale-[0.98] dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-700">
+          +
+        </button>
+      </div>
     </div>
   );
 }
@@ -2261,6 +2501,37 @@ function statsPageSummary(command, currentWeek) {
       total: incentiveTotal,
     },
   };
+}
+
+function weeklyConfirmationTotals(command, week) {
+  return confirmationRowsForWeek(command, week).reduce(
+    (sum, row) => ({
+      logged: sum.logged + row.logged,
+      confirmed: sum.confirmed + row.confirmed,
+      cancelled: sum.cancelled + row.cancelled,
+      pending: sum.pending + row.pending,
+    }),
+    { logged: 0, confirmed: 0, cancelled: 0, pending: 0 },
+  );
+}
+
+function confirmationRowsForWeek(command, week) {
+  return command.dayPlans
+    .filter((day) => day.date >= week.week_start && day.date <= week.week_end && Number(day.actual || 0) > 0)
+    .map((day) => {
+      const confirmation = command.salesConfirmationsByDate?.[day.date] || null;
+      const logged = Math.max(0, Number(day.actual || 0));
+      const confirmed = Math.min(logged, Math.max(0, Number(confirmation?.confirmed_sales || 0)));
+      const cancelled = Math.min(logged - confirmed, Math.max(0, Number(confirmation?.cancelled_sales || 0)));
+      return {
+        date: day.date,
+        logged,
+        confirmed,
+        cancelled,
+        pending: Math.max(0, logged - confirmed - cancelled),
+        confirmation,
+      };
+    });
 }
 
 function weeklyOverviewCardClass(label, isFuture) {
