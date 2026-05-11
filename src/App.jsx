@@ -1326,7 +1326,10 @@ function parseNumericInput(value) {
 }
 
 function Dashboard({ command, setPage, onSaveDay }) {
-  const completion = command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0;
+  const seasonConfirmed = Number(command.salesReview?.seasonReviewedActual || 0);
+  const seasonPending = Number(command.salesReview?.seasonPending || 0);
+  const completion = command.plan.total_goal > 0 ? (seasonConfirmed / command.plan.total_goal) * 100 : 0;
+  const remaining = Math.max(0, Number(command.plan.total_goal || 0) - seasonConfirmed);
   return (
     <div className="mx-auto grid max-w-6xl gap-4 md:gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)] xl:items-start">
       <TodaySalesCard command={command} onSaveDay={onSaveDay} />
@@ -1339,14 +1342,15 @@ function Dashboard({ command, setPage, onSaveDay }) {
             <div>
               <div className="text-3xl font-black">{percent(completion)}</div>
               <div className="mt-1 text-sm font-bold text-slate-500">
-                {number(command.completed)} of {number(command.plan.total_goal)} sales
+                Season confirmed: {number(seasonConfirmed)} of {number(command.plan.total_goal)}
               </div>
+              {seasonPending > 0 && <div className="mt-1 text-xs font-black text-slate-400">Pending: {number(seasonPending)}</div>}
             </div>
-            <Badge tone={command.paceStatus.key}>{command.paceStatus.label}</Badge>
+            <Badge tone={seasonConfirmed > 0 ? command.paceStatus.key : "neutral"}>{seasonConfirmed > 0 ? command.paceStatus.label : "Pending"}</Badge>
           </div>
-          <Progress value={completion} />
+          <Progress value={completion} tone={seasonConfirmed > 0 ? "blue" : "slate"} />
           <div className="mt-3 text-sm font-bold text-slate-500">
-            {number(command.remaining)} remaining · {number(command.requiredPerWorkday, 1)} per workday
+            {number(remaining)} confirmed sales remaining
           </div>
         </Card>
         <RewardSummary command={command} setPage={setPage} />
@@ -1412,25 +1416,38 @@ function RewardSummary({ command, setPage }) {
 }
 
 function CompactWeekCard({ command }) {
-  const progress = (command.currentWeekActual / Math.max(1, command.currentWeek.weekly_goal)) * 100;
+  const confirmed = Number(command.currentWeek.reviewedActual || 0);
+  const pending = Number(command.currentWeek.pendingActual || 0);
+  const cancelled = Number(command.currentWeek.cancelledActual || 0);
+  const weeklyGoal = Number(command.currentWeek.weekly_goal || 0);
+  const remaining = Math.max(0, weeklyGoal - confirmed);
+  const progress = (confirmed / Math.max(1, weeklyGoal)) * 100;
   const message =
-    command.currentWeekRemaining <= 0
+    remaining <= 0
       ? "Strong week. Protect the lead."
-      : `${number(command.currentWeekRemaining, 1)} sales needed this week.`;
+      : `${number(remaining, 1)} confirmed sales needed this week.`;
   return (
     <Card title="This week" icon={Calendar} compact>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-sm font-bold text-slate-500">{formatRange(command.currentWeek.week_start, command.currentWeek.week_end)}</div>
-          <div className="mt-1 text-2xl font-black">{number(command.currentWeekActual)} / {number(command.currentWeek.weekly_goal)}</div>
+          <div className={`mt-1 text-2xl font-black ${confirmed > 0 ? "text-indigo-700 dark:text-indigo-200" : "text-slate-500 dark:text-slate-300"}`}>
+            Confirmed: {number(confirmed)} / {number(weeklyGoal)}
+          </div>
+          {(pending > 0 || cancelled > 0) && (
+            <div className="mt-1 flex flex-wrap gap-2 text-xs font-black">
+              {pending > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-500 dark:bg-slate-800 dark:text-slate-300">Pending: {number(pending)}</span>}
+              {cancelled > 0 && <span className="rounded-full bg-rose-50 px-2 py-1 text-rose-700 dark:bg-rose-500/15 dark:text-rose-100">Cancelled: {number(cancelled)}</span>}
+            </div>
+          )}
         </div>
-        <Badge tone={command.currentWeekRemaining <= 0 ? "ahead" : command.requiredThisWeek > command.plan.max_sales_per_day ? "critical" : "on_track"}>
-          {command.currentWeekRemaining <= 0 ? "Ahead" : "Active"}
+        <Badge tone={remaining <= 0 ? "ahead" : confirmed > 0 ? "on_track" : "neutral"}>
+          {remaining <= 0 ? "Ahead" : confirmed > 0 ? "Confirmed" : "Pending"}
         </Badge>
       </div>
-      <Progress value={progress} />
+      <Progress value={progress} tone={confirmed > 0 ? "blue" : "slate"} />
       <div className="mt-3 text-sm font-bold text-slate-500">
-        {message} {command.currentWeekCapacity > 0 ? `${number(command.requiredThisWeek, 1)} per workday.` : ""}
+        {message} {command.currentWeekCapacity > 0 ? `${number(command.currentWeek.reviewedRequiredPerDay || 0, 1)} per workday.` : ""}
       </div>
     </Card>
   );
@@ -2412,6 +2429,22 @@ function StatsTotals({ stats }) {
   );
 }
 
+function WeeklyReviewTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0]?.payload || {};
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-3 text-xs font-black shadow-card dark:border-slate-700 dark:bg-slate-900">
+      <div className="mb-2 text-sm text-slate-950 dark:text-slate-50">{label}</div>
+      <div className="grid gap-1.5 text-slate-500 dark:text-slate-300">
+        <div className="flex items-center justify-between gap-5"><span>Confirmed</span><span className="text-emerald-600 dark:text-emerald-300">{number(item.confirmed || 0)}</span></div>
+        <div className="flex items-center justify-between gap-5"><span>Pending</span><span className="text-slate-500 dark:text-slate-300">{number(item.pending || 0)}</span></div>
+        <div className="flex items-center justify-between gap-5"><span>Cancelled</span><span className="text-rose-600 dark:text-rose-300">{number(item.cancelled || 0)}</span></div>
+        <div className="flex items-center justify-between gap-5"><span>Goal</span><span className="text-indigo-600 dark:text-indigo-300">{number(item.goal || 0)}</span></div>
+      </div>
+    </div>
+  );
+}
+
 function WeeklyOverviewGraph({ data }) {
   const hasData = data.some((item) => item.confirmed > 0 || item.pending > 0 || item.cancelled > 0 || item.goal > 0);
   return (
@@ -2421,18 +2454,18 @@ function WeeklyOverviewGraph({ data }) {
           Log more sales to see your weekly trend.
         </div>
       ) : (
-        <div className="h-56 sm:h-64 lg:h-72">
+        <div className="h-52 sm:h-60 lg:h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="confirmed" name="Confirmed" stackId="sales" fill="#10b981" radius={[8, 8, 0, 0]} />
-              <Bar dataKey="pending" name="Pending" stackId="sales" fill="#94a3b8" radius={[8, 8, 0, 0]} />
-              <Bar dataKey="cancelled" name="Cancelled" stackId="sales" fill="#ef4444" radius={[8, 8, 0, 0]} />
-              <Line type="monotone" dataKey="goal" name="Goal" stroke="#6366f1" strokeWidth={3} dot={{ r: 3 }} />
+            <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -28 }} barCategoryGap="22%">
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fontWeight: 800 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={4} />
+              <YAxis tick={{ fontSize: 10, fontWeight: 800 }} tickLine={false} axisLine={false} allowDecimals={false} width={28} />
+              <Tooltip content={<WeeklyReviewTooltip />} cursor={{ fill: "rgba(148, 163, 184, 0.12)" }} />
+              <Legend iconSize={8} wrapperStyle={{ fontSize: 11, fontWeight: 800, paddingTop: 8 }} />
+              <Bar dataKey="confirmed" name="Confirmed" stackId="sales" fill="#059669" maxBarSize={26} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="pending" name="Pending" stackId="sales" fill="#cbd5e1" maxBarSize={26} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="cancelled" name="Cancelled" stackId="sales" fill="#f43f5e" maxBarSize={26} radius={[4, 4, 0, 0]} />
+              <Line type="monotone" dataKey="goal" name="Goal" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 2.5 }} activeDot={{ r: 4 }} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
