@@ -2224,8 +2224,13 @@ function ConfirmSalesSummaryCard({ command, week, onOpen }) {
           Week reviewed ✓
         </div>
       )}
+      {totals.pending > 0 && (
+        <div className="mt-3 rounded-2xl bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+          {number(totals.pending)} pending sales to review
+        </div>
+      )}
       <button type="button" onClick={onOpen} className="app-primary-button mt-4 w-full px-4 py-3 text-sm">
-        Confirm Sales
+        {totals.pending > 0 ? "Review Pending" : "Review Sales"}
       </button>
     </Card>
   );
@@ -2233,6 +2238,10 @@ function ConfirmSalesSummaryCard({ command, week, onOpen }) {
 
 function SalesConfirmationSheet({ command, week, onClose, onSave }) {
   const rows = confirmationRowsForWeek(command, week);
+  const pendingRows = rows.filter((row) => Number(row.pending || 0) > 0);
+  const reviewRows = pendingRows.length ? pendingRows : rows;
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [detailOpen, setDetailOpen] = useState(false);
   const totals = rows.reduce(
     (sum, row) => ({
       logged: sum.logged + row.logged,
@@ -2242,14 +2251,22 @@ function SalesConfirmationSheet({ command, week, onClose, onSave }) {
     }),
     { logged: 0, confirmed: 0, cancelled: 0, pending: 0 },
   );
+  const reviewedSales = Math.max(0, totals.logged - totals.pending);
+  const reviewProgress = totals.logged > 0 ? (reviewedSales / totals.logged) * 100 : 0;
+  const activeRow = reviewRows[Math.min(activeIndex, Math.max(0, reviewRows.length - 1))];
+
+  useEffect(() => {
+    setActiveIndex((index) => Math.min(index, Math.max(0, reviewRows.length - 1)));
+  }, [reviewRows.length]);
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/45 sm:place-items-center">
-      <div className="max-h-[92vh] w-full overflow-auto rounded-t-[2rem] bg-white p-4 shadow-glow dark:bg-slate-900 sm:max-w-2xl sm:rounded-[2rem] md:p-6">
+      <div className="max-h-[92vh] w-full overflow-auto rounded-t-[2rem] bg-white p-4 shadow-glow dark:bg-slate-900 sm:max-w-xl sm:rounded-[2rem] md:p-6">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Confirm Sales</div>
+            <div className="text-sm font-black uppercase tracking-wide text-indigo-600">Review Pending Sales</div>
             <h2 className="text-2xl font-black text-slate-950 dark:text-slate-50">{formatRange(week.week_start, week.week_end)}</h2>
-            <p className="mt-1 text-sm font-bold text-slate-500">Review logged sales by day. Dashboard totals stay logged sales.</p>
+            <p className="mt-1 text-sm font-bold text-slate-500">Close out one day at a time. Dashboard still shows logged activity.</p>
           </div>
           <button type="button" onClick={onClose} className="app-secondary-button px-4 py-2 text-sm">
             Close
@@ -2266,15 +2283,136 @@ function SalesConfirmationSheet({ command, week, onClose, onSave }) {
             All logged sales have been reviewed.
           </div>
         )}
-        <div className="grid gap-3">
-          {rows.length ? (
-            rows.map((row) => <ConfirmationDateCard key={row.date} row={row} onSave={onSave} />)
-          ) : (
-            <div className="rounded-3xl bg-slate-50 p-5 text-sm font-bold text-slate-500 dark:bg-slate-950">
-              No logged sales this week yet.
+        {totals.logged > 0 && (
+          <div className="mb-4 rounded-3xl bg-slate-50 p-3 dark:bg-slate-950">
+            <div className="flex items-center justify-between gap-3 text-xs font-black uppercase tracking-wide text-slate-400">
+              <span>Reviewed {number(reviewedSales)} of {number(totals.logged)} sales</span>
+              <span>{percent(reviewProgress)}</span>
             </div>
-          )}
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+              <div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${Math.min(100, reviewProgress)}%` }} />
+            </div>
+          </div>
+        )}
+        {activeRow ? (
+          <FocusedConfirmationDay
+            row={activeRow}
+            index={Math.min(activeIndex, reviewRows.length - 1)}
+            total={reviewRows.length}
+            onSave={onSave}
+            onBack={() => setActiveIndex((index) => Math.max(0, index - 1))}
+            onNext={() => setActiveIndex((index) => Math.min(reviewRows.length - 1, index + 1))}
+          />
+        ) : (
+          <div className="rounded-3xl bg-slate-50 p-5 text-sm font-bold text-slate-500 dark:bg-slate-950">
+            No logged sales this week yet.
+          </div>
+        )}
+        {rows.length > 0 && (
+          <button type="button" onClick={() => setDetailOpen((value) => !value)} className="app-secondary-button mt-4 w-full px-4 py-3 text-sm">
+            {detailOpen ? "Hide all days" : "Edit details"}
+          </button>
+        )}
+        {detailOpen && (
+          <div className="mt-4 grid gap-3">
+            {rows.map((row) => (
+              <ConfirmationDateCard key={row.date} row={row} onSave={onSave} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FocusedConfirmationDay({ row, index, total, onSave, onBack, onNext }) {
+  const [draft, setDraft] = useState(() => ({ confirmed: row.confirmed, cancelled: row.cancelled }));
+  const [status, setStatus] = useState("idle");
+  const pending = Math.max(0, row.logged - draft.confirmed - draft.cancelled);
+  const invalid = draft.confirmed + draft.cancelled > row.logged;
+  const isReviewed = row.logged > 0 && pending === 0;
+  const isLast = index >= total - 1;
+
+  useEffect(() => {
+    setDraft({ confirmed: row.confirmed, cancelled: row.cancelled });
+    setStatus("idle");
+  }, [row.date, row.confirmed, row.cancelled]);
+
+  function setCount(key, value) {
+    const next = Math.max(0, Math.min(row.logged, Number(value || 0)));
+    setDraft((current) => {
+      const otherKey = key === "confirmed" ? "cancelled" : "confirmed";
+      const capped = Math.min(next, row.logged - Number(current[otherKey] || 0));
+      return { ...current, [key]: capped };
+    });
+  }
+
+  async function save(nextDraft = draft) {
+    const safeConfirmed = Math.max(0, Number(nextDraft.confirmed || 0));
+    const safeCancelled = Math.max(0, Number(nextDraft.cancelled || 0));
+    if (safeConfirmed + safeCancelled > row.logged || status === "saving") return false;
+    setStatus("saving");
+    try {
+      await onSave(row.date, {
+        id: row.confirmation?.id,
+        confirmed_sales: safeConfirmed,
+        cancelled_sales: safeCancelled,
+        notes: row.confirmation?.notes || "",
+      });
+      setStatus("saved");
+      window.setTimeout(() => setStatus("idle"), 1200);
+      return true;
+    } catch {
+      setStatus("error");
+      return false;
+    }
+  }
+
+  async function confirmAll() {
+    const next = { confirmed: row.logged, cancelled: 0 };
+    setDraft(next);
+    await save(next);
+  }
+
+  async function saveAndNext() {
+    const ok = await save();
+    if (ok && !isLast) onNext();
+  }
+
+  return (
+    <div className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black uppercase tracking-wide text-slate-400">Day {number(index + 1)} of {number(total)}</div>
+          <div className="mt-1 text-2xl font-black text-slate-950 dark:text-slate-50">{formatDate(row.date, { weekday: "long", month: "short", day: "numeric" })}</div>
+          <div className="mt-1 text-sm font-bold text-slate-500">{number(row.logged)} logged sales</div>
         </div>
+        {isReviewed && <Badge tone="ahead">Day reviewed ✓</Badge>}
+        {status === "error" && <Badge tone="critical">Try again</Badge>}
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <MiniMetric label="Confirmed" value={number(draft.confirmed)} />
+        <MiniMetric label="Pending left" value={number(pending)} />
+        <MiniMetric label="Cancelled" value={number(draft.cancelled)} />
+      </div>
+      {invalid && <div className="mt-3 text-sm font-black text-red-600">Confirmed plus cancelled cannot exceed logged sales.</div>}
+      <div className="mt-4 grid gap-3 rounded-3xl bg-slate-50 p-3 dark:bg-slate-950">
+        <ConfirmationCounter label="Confirmed" value={draft.confirmed} onChange={(value) => setCount("confirmed", value)} />
+        <ConfirmationCounter label="Cancelled" value={draft.cancelled} onChange={(value) => setCount("cancelled", value)} />
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <button type="button" onClick={confirmAll} disabled={status === "saving" || row.logged <= 0} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
+          {status === "saving" ? "Saving..." : "Confirm all"}
+        </button>
+        <button type="button" onClick={saveAndNext} disabled={invalid || status === "saving"} className="app-primary-button px-4 py-3 text-sm">
+          {status === "saving" ? "Saving..." : isLast ? "Save Review" : "Next Day"}
+        </button>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <button type="button" onClick={onBack} disabled={index === 0 || status === "saving"} className="app-secondary-button px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40">
+          Back
+        </button>
+        {status === "saved" && <span className="text-sm font-black text-emerald-600 dark:text-emerald-300">Saved ✓</span>}
       </div>
     </div>
   );
