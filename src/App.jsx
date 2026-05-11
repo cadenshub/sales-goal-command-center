@@ -2308,7 +2308,7 @@ function ConfirmationDateCard({ row, onSave }) {
           <div className="text-lg font-black text-slate-950 dark:text-slate-50">{formatDate(row.date, { weekday: "short", month: "short", day: "numeric" })}</div>
           <div className="mt-1 text-sm font-bold text-slate-500">Logged: {number(row.logged)} sales</div>
         </div>
-        {status === "saved" && <Badge tone="ahead">Confirmed ✓</Badge>}
+        {status === "saved" && <Badge tone="ahead">Saved ✓</Badge>}
         {status === "error" && <Badge tone="critical">Try again</Badge>}
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2">
