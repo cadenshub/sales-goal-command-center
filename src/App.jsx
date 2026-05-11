@@ -29,6 +29,7 @@ import {
   Legend,
   Line,
   ResponsiveContainer,
+  Scatter,
   Tooltip,
   XAxis,
   YAxis,
@@ -1635,7 +1636,7 @@ function TodaySalesCard({ command, onSaveDay }) {
       <div className="mt-4 rounded-[1.75rem] border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-emerald-50 p-4 shadow-sm dark:border-slate-700 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-xs font-black uppercase tracking-wide text-slate-400">Done today</div>
+            <div className="text-xs font-black uppercase tracking-wide text-slate-400">Logged today</div>
             <div className="mt-1 flex flex-wrap items-end gap-x-2 gap-y-1">
               <span className={`text-5xl font-black leading-none tracking-tight text-slate-950 transition-colors duration-500 dark:text-slate-50 ${donePulse ? "text-emerald-600 drop-shadow-sm dark:text-emerald-400" : ""}`}>
                 {number(totalActual)}
@@ -2432,6 +2433,7 @@ function StatsTotals({ stats }) {
 function WeeklyReviewTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const item = payload[0]?.payload || {};
+  const logged = Number(item.logged ?? Number(item.confirmed || 0) + Number(item.pending || 0) + Number(item.cancelled || 0));
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-3 text-xs font-black shadow-card dark:border-slate-700 dark:bg-slate-900">
       <div className="mb-2 text-sm text-slate-950 dark:text-slate-50">{label}</div>
@@ -2439,6 +2441,7 @@ function WeeklyReviewTooltip({ active, payload, label }) {
         <div className="flex items-center justify-between gap-5"><span>Confirmed</span><span className="text-emerald-600 dark:text-emerald-300">{number(item.confirmed || 0)}</span></div>
         <div className="flex items-center justify-between gap-5"><span>Pending</span><span className="text-slate-500 dark:text-slate-300">{number(item.pending || 0)}</span></div>
         <div className="flex items-center justify-between gap-5"><span>Cancelled</span><span className="text-rose-600 dark:text-rose-300">{number(item.cancelled || 0)}</span></div>
+        <div className="flex items-center justify-between gap-5"><span>Logged total</span><span className="text-slate-700 dark:text-slate-100">{number(logged)}</span></div>
         <div className="flex items-center justify-between gap-5"><span>Goal</span><span className="text-indigo-600 dark:text-indigo-300">{number(item.goal || 0)}</span></div>
       </div>
     </div>
@@ -2447,6 +2450,10 @@ function WeeklyReviewTooltip({ active, payload, label }) {
 
 function WeeklyOverviewGraph({ data }) {
   const hasData = data.some((item) => item.confirmed > 0 || item.pending > 0 || item.cancelled > 0 || item.goal > 0);
+  const displayData = data.map((item) => ({
+    ...item,
+    cancelledMarker: item.cancelled > 0 ? item.cancelled : null,
+  }));
   return (
     <Card title="Weekly Confirmed vs Goal" icon={TrendingUp}>
       {!hasData ? (
@@ -2456,15 +2463,15 @@ function WeeklyOverviewGraph({ data }) {
       ) : (
         <div className="h-52 sm:h-60 lg:h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -28 }} barCategoryGap="22%">
+            <ComposedChart data={displayData} margin={{ top: 8, right: 4, bottom: 0, left: -28 }} barCategoryGap="28%">
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 10, fontWeight: 800 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={4} />
               <YAxis tick={{ fontSize: 10, fontWeight: 800 }} tickLine={false} axisLine={false} allowDecimals={false} width={28} />
               <Tooltip content={<WeeklyReviewTooltip />} cursor={{ fill: "rgba(148, 163, 184, 0.12)" }} />
               <Legend iconSize={8} wrapperStyle={{ fontSize: 11, fontWeight: 800, paddingTop: 8 }} />
-              <Bar dataKey="confirmed" name="Confirmed" stackId="sales" fill="#059669" maxBarSize={26} radius={[4, 4, 0, 0]} />
-              <Bar dataKey="pending" name="Pending" stackId="sales" fill="#cbd5e1" maxBarSize={26} radius={[4, 4, 0, 0]} />
-              <Bar dataKey="cancelled" name="Cancelled" stackId="sales" fill="#f43f5e" maxBarSize={26} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="confirmed" name="Confirmed" stackId="review" fill="#059669" maxBarSize={24} radius={[0, 0, 5, 5]} />
+              <Bar dataKey="pending" name="Pending" stackId="review" fill="#dbe3ee" maxBarSize={24} radius={[5, 5, 0, 0]} />
+              <Scatter dataKey="cancelledMarker" name="Cancelled" fill="#e11d48" />
               <Line type="monotone" dataKey="goal" name="Goal" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 2.5 }} activeDot={{ r: 4 }} />
             </ComposedChart>
           </ResponsiveContainer>
