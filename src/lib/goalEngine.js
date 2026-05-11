@@ -89,6 +89,12 @@ export function buildCommandCenter(workspace) {
   const normalWorkdays = settings.normal_workdays || [1, 2, 3, 4, 5, 6];
   const timeBlocksConfig = normalizeTimeBlocks(settings.time_blocks_config);
   const seasonDates = datesBetween(plan.start_date, plan.end_date);
+  const salesStatusByDate = buildSalesStatusByDate({
+    dates: seasonDates,
+    entriesByDate,
+    timeBlocksByDate,
+    salesConfirmationsByDate,
+  });
   const trackingStart = maxISO(plan.start_date, plan.tracking_start_date || plan.start_date);
   const activeEnd = minISO(today, plan.end_date);
   const currentMonthStart = toISO(monthStart(parseISO(today)));
@@ -131,12 +137,16 @@ export function buildCommandCenter(workspace) {
     dayOverrides,
     entriesByDate,
     timeBlocksByDate,
+    salesStatusByDate,
     weeklyConfirmationsByRange,
   );
   const currentWeek = getCurrentTrackedWeek(weeks, workspace, today, weekStartDay);
   const currentWeekStart = currentWeek.week_start;
   const currentWeekEnd = currentWeek.week_end;
   const currentWeekActual = sumSales(currentWeek.week_start, currentWeek.week_end, entriesByDate, timeBlocksByDate);
+  const currentWeekReview = sumSalesStatus(currentWeek.week_start, currentWeek.week_end, salesStatusByDate);
+  const currentMonthReview = sumSalesStatus(currentMonthStart, currentMonthEnd, salesStatusByDate);
+  const seasonReview = sumSalesStatus(plan.start_date, plan.end_date, salesStatusByDate);
   const currentWeekRemaining = Math.max(0, Number(currentWeek.weekly_goal || 0) - currentWeekActual);
   const currentWeekFutureStart = maxISO(maxISO(today, trackingStart), currentWeek.week_start);
   const currentWeekCapacity =
@@ -195,6 +205,25 @@ export function buildCommandCenter(workspace) {
     remainingWorkCapacity,
   });
   const charts = buildCharts(dayPlans, weeks, completed, plan);
+  const startingSales = Number(plan.starting_sales || 0);
+  const salesReview = {
+    currentWeekLogged: currentWeekReview.logged,
+    currentWeekConfirmed: currentWeekReview.confirmed,
+    currentWeekPending: currentWeekReview.pending,
+    currentWeekCancelled: currentWeekReview.cancelled,
+    currentMonthLogged: currentMonthReview.logged,
+    currentMonthConfirmed: currentMonthReview.confirmed,
+    currentMonthPending: currentMonthReview.pending,
+    currentMonthCancelled: currentMonthReview.cancelled,
+    seasonLogged: seasonReview.logged,
+    seasonConfirmed: seasonReview.confirmed,
+    seasonPending: seasonReview.pending,
+    seasonCancelled: seasonReview.cancelled,
+    currentWeekReviewedActual: currentWeekReview.confirmed,
+    monthReviewedActual: currentMonthReview.confirmed,
+    seasonReviewedActual: startingSales + seasonReview.confirmed,
+    startingSales,
+  };
 
   return {
     today,
@@ -211,10 +240,13 @@ export function buildCommandCenter(workspace) {
     weeklyConfirmationsByRange,
     salesConfirmations: workspace.salesConfirmations || [],
     salesConfirmationsByDate,
+    salesStatusByDate,
+    salesReview,
     incentives,
     nextIncentive,
     currentWeek,
     currentWeekActual,
+    currentWeekReviewedActual: salesReview.currentWeekReviewedActual,
     currentWeekRemaining,
     currentWeekCapacity,
     requiredThisWeek,
@@ -223,6 +255,8 @@ export function buildCommandCenter(workspace) {
     currentMonthStart,
     currentMonthEnd,
     completed,
+    seasonReviewedActual: salesReview.seasonReviewedActual,
+    monthReviewedActual: salesReview.monthReviewedActual,
     remaining,
     salesInRange,
     outsideSales,
@@ -419,6 +453,7 @@ function buildWeeks(
   dayOverrides,
   entriesByDate,
   timeBlocksByDate,
+  salesStatusByDate,
   weeklyConfirmationsByRange,
 ) {
   const plan = workspace.plan;
@@ -448,22 +483,34 @@ function buildWeeks(
     .sort((a, b) => a.week_start.localeCompare(b.week_start))
     .map((week) => {
       const actual = sumSales(week.week_start, week.week_end, entriesByDate, timeBlocksByDate);
+      const review = sumSalesStatus(week.week_start, week.week_end, salesStatusByDate);
       const weeklyGoal = getEffectiveWeeklyGoal(week, plan);
       const remaining = Math.max(0, weeklyGoal - actual);
+      const reviewedRemaining = Math.max(0, weeklyGoal - review.confirmed);
       const today = todayISO();
       const remainingStart = maxISO(today, week.week_start);
       const capacity = remainingStart <= week.week_end ? sumCapacity(remainingStart, week.week_end, normalWorkdays, dayOverrides) : 0;
       const requiredPerDay = capacity > 0 ? remaining / capacity : 0;
+      const reviewedRequiredPerDay = capacity > 0 ? reviewedRemaining / capacity : 0;
       const progress = weeklyGoal > 0 ? (actual / weeklyGoal) * 100 : 100;
+      const reviewedProgress = weeklyGoal > 0 ? (review.confirmed / weeklyGoal) * 100 : 100;
       const confirmation = weeklyConfirmationsByRange[`${week.week_start}:${week.week_end}`] || null;
       return {
         ...week,
         weekly_goal: weeklyGoal,
         actual,
+        loggedActual: review.logged,
+        confirmedActual: review.confirmed,
+        pendingActual: review.pending,
+        cancelledActual: review.cancelled,
+        reviewedActual: review.confirmed,
         remaining,
+        reviewedRemaining,
         remainingCapacity: capacity,
         requiredPerDay,
+        reviewedRequiredPerDay,
         progress,
+        reviewedProgress,
         confirmation,
         confirmedSales: confirmation ? Number(confirmation.confirmed_sales || 0) : null,
         pendingSales: confirmation ? Number(confirmation.pending_sales || 0) : Math.max(0, actual),
@@ -474,6 +521,39 @@ function buildWeeks(
 
 function weeksOverlap(a, b) {
   return a.week_start <= b.week_end && b.week_start <= a.week_end;
+}
+
+function buildSalesStatusByDate({ dates, entriesByDate, timeBlocksByDate, salesConfirmationsByDate }) {
+  return dates.reduce((statusByDate, date) => {
+    const logged = Math.max(0, saleCount(date, entriesByDate, timeBlocksByDate));
+    const confirmation = salesConfirmationsByDate[date] || null;
+    const confirmed = Math.min(logged, Math.max(0, Number(confirmation?.confirmed_sales || 0)));
+    const cancelled = Math.min(logged - confirmed, Math.max(0, Number(confirmation?.cancelled_sales || 0)));
+    statusByDate[date] = {
+      date,
+      logged,
+      confirmed,
+      cancelled,
+      pending: Math.max(0, logged - confirmed - cancelled),
+      reviewedActual: confirmed,
+      confirmation,
+    };
+    return statusByDate;
+  }, {});
+}
+
+function sumSalesStatus(start, end, salesStatusByDate) {
+  return Object.values(salesStatusByDate || {})
+    .filter((status) => status.date >= start && status.date <= end)
+    .reduce(
+      (sum, status) => ({
+        logged: sum.logged + Number(status.logged || 0),
+        confirmed: sum.confirmed + Number(status.confirmed || 0),
+        pending: sum.pending + Number(status.pending || 0),
+        cancelled: sum.cancelled + Number(status.cancelled || 0),
+      }),
+      { logged: 0, confirmed: 0, pending: 0, cancelled: 0 },
+    );
 }
 
 function groupWeeklyConfirmations(confirmations) {
@@ -563,6 +643,16 @@ function buildCharts(dayPlans, weeks, completed, plan) {
     actual: week.actual,
     goal: Number(week.weekly_goal || 0),
   }));
+  const weeklyReview = weeks.map((week, index) => ({
+    label: `W${index + 1}`,
+    week_start: week.week_start,
+    week_end: week.week_end,
+    confirmed: Number(week.confirmedActual || 0),
+    pending: Number(week.pendingActual || 0),
+    cancelled: Number(week.cancelledActual || 0),
+    logged: Number(week.loggedActual ?? week.actual ?? 0),
+    goal: Number(week.weekly_goal || 0),
+  }));
   const blockTotals = new Map();
   dayPlans.forEach((day) => {
     day.timeBlocks.blocks.forEach((block) => {
@@ -577,6 +667,7 @@ function buildCharts(dayPlans, weeks, completed, plan) {
     salesByDay,
     goalLine,
     weekly,
+    weeklyReview,
     timeBlocks: [...blockTotals.values()].map((item) => ({
       ...item,
       actual: Number(item.actual.toFixed(1)),

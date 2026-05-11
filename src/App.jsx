@@ -2154,6 +2154,12 @@ function WeeklyPlanner({ command, saveSalesConfirmation }) {
   const graphWeeks = indexedWeeks.slice(Math.max(0, currentWeekIndex - 6), Math.min(indexedWeeks.length, currentWeekIndex + 4));
   const startedWeeks = indexedWeeks.filter((week) => week.week_start <= command.today);
   const overviewWeeks = (startedWeeks.length ? startedWeeks : indexedWeeks.slice(0, 1)).slice(-8);
+  const graphData = command.charts.weeklyReview
+    .filter((row) => graphWeeks.some((week) => week.week_start === row.week_start && week.week_end === row.week_end))
+    .map((row) => {
+      const week = graphWeeks.find((item) => item.week_start === row.week_start && item.week_end === row.week_end);
+      return { ...row, label: `W${week?.seasonWeekNumber || row.label}` };
+    });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const stats = statsPageSummary(command, currentWeek);
   return (
@@ -2169,9 +2175,9 @@ function WeeklyPlanner({ command, saveSalesConfirmation }) {
       </section>
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-stretch">
         <StatsTotals stats={stats} />
-        <WeeklyOverviewGraph weeks={graphWeeks} command={command} />
+        <WeeklyOverviewGraph data={graphData} />
       </section>
-      <WeeklyOverviewList weeks={overviewWeeks} command={command} />
+      <WeeklyOverviewList weeks={overviewWeeks} />
       {confirmOpen && (
         <SalesConfirmationSheet
           command={command}
@@ -2356,12 +2362,11 @@ function ConfirmationCounter({ label, value, onChange }) {
 }
 
 function CurrentWeekSummary({ week, command }) {
-  const review = salesReviewTotalsForRange(command, week.week_start, week.week_end);
-  const actual = review.confirmed;
+  const actual = Number(week.reviewedActual || 0);
   const goal = getEffectiveWeeklyGoal(week, command.plan);
-  const progress = goal > 0 ? (actual / goal) * 100 : 0;
-  const remaining = Math.max(0, goal - actual);
-  const neededPerDay = Number(week.remainingCapacity || 0) > 0 ? remaining / Number(week.remainingCapacity || 0) : 0;
+  const progress = Number(week.reviewedProgress || 0);
+  const remaining = Number(week.reviewedRemaining ?? Math.max(0, goal - actual));
+  const neededPerDay = Number(week.reviewedRequiredPerDay || 0);
   const message =
     remaining <= 0
       ? "Goal met. Everything else is bonus."
@@ -2384,8 +2389,8 @@ function CurrentWeekSummary({ week, command }) {
       </div>
       <Progress value={progress} />
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        <MiniMetric label="Logged pipeline" value={number(review.logged)} />
-        <MiniMetric label="Pending" value={number(review.pending)} />
+        <MiniMetric label="Logged pipeline" value={number(week.loggedActual || 0)} />
+        <MiniMetric label="Pending" value={number(week.pendingActual || 0)} />
         <MiniMetric label="Days left" value={number(week.remainingCapacity, 1)} />
         <MiniMetric label="Needed / day" value={number(neededPerDay, 1)} />
       </div>
@@ -2407,8 +2412,7 @@ function StatsTotals({ stats }) {
   );
 }
 
-function WeeklyOverviewGraph({ weeks, command }) {
-  const data = weeklyGraphData(weeks, command);
+function WeeklyOverviewGraph({ data }) {
   const hasData = data.some((item) => item.confirmed > 0 || item.pending > 0 || item.cancelled > 0 || item.goal > 0);
   return (
     <Card title="Weekly Confirmed vs Goal" icon={TrendingUp}>
@@ -2437,14 +2441,13 @@ function WeeklyOverviewGraph({ weeks, command }) {
   );
 }
 
-function WeeklyOverviewList({ weeks, command }) {
+function WeeklyOverviewList({ weeks }) {
   return (
     <Card title="Weekly overview" icon={Calendar} compact>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {weeks.map((week) => {
-          const review = salesReviewTotalsForRange(command, week.week_start, week.week_end);
-          const weeklyGoal = getEffectiveWeeklyGoal(week, command.plan);
-          const progress = weeklyGoal > 0 ? (review.confirmed / weeklyGoal) * 100 : 0;
+          const weeklyGoal = Number(week.weekly_goal || 0);
+          const progress = Number(week.reviewedProgress || 0);
           const badge = weeklyAchievement(progress / 100, weeklyGoal);
           const isFuture = week.week_start > todayISO();
           return (
@@ -2457,8 +2460,8 @@ function WeeklyOverviewList({ weeks, command }) {
                   <div className="text-xs font-black uppercase tracking-wide text-indigo-600">Week {week.seasonWeekNumber}</div>
                   <div className="mt-1 truncate text-sm font-black text-slate-950 dark:text-slate-50">{formatRange(week.week_start, week.week_end)}</div>
                   <div className="mt-1 text-xs font-bold text-slate-500">
-                    {number(review.confirmed)} / {number(weeklyGoal)} confirmed
-                    {review.pending > 0 && <span className="block text-slate-400">{number(review.pending)} pending</span>}
+                    {number(week.reviewedActual || 0)} / {number(weeklyGoal)} confirmed
+                    {week.pendingActual > 0 && <span className="block text-slate-400">{number(week.pendingActual)} pending</span>}
                   </div>
                 </div>
                 {badge && <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-black ${badge.className}`}>{badge.label}</span>}
@@ -2473,29 +2476,33 @@ function WeeklyOverviewList({ weeks, command }) {
 }
 
 function statsPageSummary(command, currentWeek) {
-  const weekReview = salesReviewTotalsForRange(command, currentWeek.week_start, currentWeek.week_end);
-  const monthReview = salesReviewTotalsForRange(command, command.currentMonthStart, command.currentMonthEnd);
-  const seasonReview = salesReviewTotalsForRange(command, command.plan.start_date, command.plan.end_date);
-  const startingSales = Number(command.plan.starting_sales || 0);
+  const review = command.salesReview;
   const weekGoal = getEffectiveWeeklyGoal(currentWeek, command.plan);
   const incentiveTotal = command.incentives.length;
   const incentiveMet = command.incentives.filter((item) => item.status === "achieved" || item.status === "claimed").length;
   return {
     week: {
-      ...weekReview,
+      logged: review.currentWeekLogged,
+      confirmed: review.currentWeekConfirmed,
+      pending: review.currentWeekPending,
+      cancelled: review.currentWeekCancelled,
       goal: weekGoal,
-      progress: weekGoal > 0 ? (weekReview.confirmed / weekGoal) * 100 : 0,
+      progress: weekGoal > 0 ? (review.currentWeekConfirmed / weekGoal) * 100 : 0,
     },
     month: {
-      ...monthReview,
+      logged: review.currentMonthLogged,
+      confirmed: review.currentMonthConfirmed,
+      pending: review.currentMonthPending,
+      cancelled: review.currentMonthCancelled,
       goal: 0,
     },
     season: {
-      ...seasonReview,
-      logged: startingSales + seasonReview.logged,
-      confirmed: startingSales + seasonReview.confirmed,
+      logged: review.startingSales + review.seasonLogged,
+      confirmed: review.seasonReviewedActual,
+      pending: review.seasonPending,
+      cancelled: review.seasonCancelled,
       goal: Number(command.plan.total_goal || 0),
-      progress: command.plan.total_goal > 0 ? ((startingSales + seasonReview.confirmed) / command.plan.total_goal) * 100 : 0,
+      progress: command.plan.total_goal > 0 ? (review.seasonReviewedActual / command.plan.total_goal) * 100 : 0,
     },
     incentives: {
       met: incentiveMet,
@@ -2505,56 +2512,18 @@ function statsPageSummary(command, currentWeek) {
 }
 
 function weeklyConfirmationTotals(command, week) {
-  return salesReviewTotalsForRange(command, week.week_start, week.week_end);
+  return {
+    logged: Number(week.loggedActual || 0),
+    confirmed: Number(week.confirmedActual || 0),
+    pending: Number(week.pendingActual || 0),
+    cancelled: Number(week.cancelledActual || 0),
+  };
 }
 
 function confirmationRowsForWeek(command, week) {
-  return salesReviewRowsForRange(command, week.week_start, week.week_end).filter((row) => row.logged > 0);
-}
-
-function salesReviewRowsForRange(command, startDate, endDate) {
-  return buildSalesReviewData({
-    dayPlans: command.dayPlans,
-    confirmationsByDate: command.salesConfirmationsByDate,
-    dateRange: { start: startDate, end: endDate },
-  }).rows;
-}
-
-function salesReviewTotalsForRange(command, startDate, endDate) {
-  return buildSalesReviewData({
-    dayPlans: command.dayPlans,
-    confirmationsByDate: command.salesConfirmationsByDate,
-    dateRange: { start: startDate, end: endDate },
-  }).totals;
-}
-
-function buildSalesReviewData({ dayPlans = [], confirmationsByDate = {}, dateRange = {} }) {
-  const rows = dayPlans
-    .filter((day) => (!dateRange.start || day.date >= dateRange.start) && (!dateRange.end || day.date <= dateRange.end))
-    .map((day) => {
-      const logged = Math.max(0, Number(day.actual || 0));
-      const confirmation = confirmationsByDate?.[day.date] || null;
-      const confirmed = Math.min(logged, Math.max(0, Number(confirmation?.confirmed_sales || 0)));
-      const cancelled = Math.min(logged - confirmed, Math.max(0, Number(confirmation?.cancelled_sales || 0)));
-      return {
-        date: day.date,
-        logged,
-        confirmed,
-        cancelled,
-        pending: Math.max(0, logged - confirmed - cancelled),
-        confirmation,
-      };
-    });
-  const totals = rows.reduce(
-    (sum, row) => ({
-      logged: sum.logged + row.logged,
-      confirmed: sum.confirmed + row.confirmed,
-      cancelled: sum.cancelled + row.cancelled,
-      pending: sum.pending + row.pending,
-    }),
-    { logged: 0, confirmed: 0, cancelled: 0, pending: 0 },
-  );
-  return { rows, totals };
+  return Object.values(command.salesStatusByDate || {})
+    .filter((row) => row.date >= week.week_start && row.date <= week.week_end && Number(row.logged || 0) > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function weeklyOverviewCardClass(label, isFuture) {
@@ -2564,14 +2533,6 @@ function weeklyOverviewCardClass(label, isFuture) {
   if (label === "Silver") return "border-slate-300 bg-slate-50 dark:border-slate-500";
   if (label === "Bronze") return "border-[#d69a5b]/50 bg-[#fff7ed] dark:border-[#d69a5b]/40";
   return "border-slate-200 bg-white dark:border-slate-700";
-}
-
-function weeklyGraphData(weeks, command) {
-  return weeks.map((week, index) => ({
-    label: `W${week.seasonWeekNumber || index + 1}`,
-    ...salesReviewTotalsForRange(command, week.week_start, week.week_end),
-    goal: getEffectiveWeeklyGoal(week, command.plan),
-  }));
 }
 
 function GoalsPage({ workspace, command, savePlan }) {
