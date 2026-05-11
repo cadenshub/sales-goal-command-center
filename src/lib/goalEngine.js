@@ -388,9 +388,9 @@ function getCurrentTrackedWeek(weeks, workspace, today, weekStartDay) {
 
 function getWeekRange(workspace, start, end, defaultGoal) {
   const savedWeeks = workspace.weeks || [];
-  const exactMatch = savedWeeks.find((week) => week.week_start === start && week.week_end === end);
-  const rangeMatch = savedWeeks.find(
-    (week) => week.custom_range_enabled && start <= week.week_end && end >= week.week_start,
+  const exactMatch = pickBestWeekMatch(savedWeeks.filter((week) => week.week_start === start && week.week_end === end));
+  const rangeMatch = pickBestWeekMatch(
+    savedWeeks.filter((week) => week.custom_range_enabled && start <= week.week_end && end >= week.week_start),
   );
   const match = exactMatch || rangeMatch;
   return (
@@ -405,6 +405,11 @@ function getWeekRange(workspace, start, end, defaultGoal) {
           range_label: "Current sales week",
         }
   );
+}
+
+function pickBestWeekMatch(matches) {
+  if (!matches.length) return null;
+  return matches.find((week) => week.custom_goal_enabled) || matches.find((week) => week.custom_range_enabled) || matches.find((week) => week.id) || matches[0];
 }
 
 function buildWeeks(

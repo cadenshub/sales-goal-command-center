@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Clock,
   CloudSun,
-  Edit3,
   Flame,
   Gift,
   Home,
@@ -2142,14 +2141,18 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay, saveSalesConfirmation }) {
+function WeeklyPlanner({ command, saveSalesConfirmation }) {
   const indexedWeeks = command.weeks.map((week, index) => ({ ...week, seasonWeekNumber: index + 1 }));
   const currentWeek =
     indexedWeeks.find((week) => week.week_start === command.currentWeek.week_start && week.week_end === command.currentWeek.week_end) ||
     { ...command.currentWeek, seasonWeekNumber: Math.max(1, indexedWeeks.findIndex((week) => week.week_start <= command.today && week.week_end >= command.today) + 1) };
-  const currentWeekIndex = Math.max(0, indexedWeeks.findIndex((week) => week.week_start === currentWeek.week_start && week.week_end === currentWeek.week_end));
-  const visibleWeeks = indexedWeeks.slice(Math.max(0, currentWeekIndex - 4), Math.min(indexedWeeks.length, currentWeekIndex + 5));
-  const [showWeekEditor, setShowWeekEditor] = useState(false);
+  const currentWeekIndex = Math.max(
+    0,
+    indexedWeeks.findIndex((week) => week.week_start === currentWeek.week_start && week.week_end === currentWeek.week_end),
+  );
+  const graphWeeks = indexedWeeks.slice(Math.max(0, currentWeekIndex - 6), Math.min(indexedWeeks.length, currentWeekIndex + 4));
+  const startedWeeks = indexedWeeks.filter((week) => week.week_start <= command.today);
+  const overviewWeeks = (startedWeeks.length ? startedWeeks : indexedWeeks.slice(0, 1)).slice(-8);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const stats = statsPageSummary(command, currentWeek);
   return (
@@ -2165,28 +2168,9 @@ function WeeklyPlanner({ command, saveWeek, removeWeek, saveDay, saveSalesConfir
       </section>
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-stretch">
         <StatsTotals stats={stats} />
-        <WeeklyOverviewGraph weeks={visibleWeeks} />
+        <WeeklyOverviewGraph weeks={graphWeeks} />
       </section>
-      <WeeklyOverviewList weeks={visibleWeeks} />
-      <Card title="Week goals" icon={Edit3} compact>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm font-bold text-slate-500">Week editing is tucked away for now so the stats stay easy to scan.</p>
-          <button
-            type="button"
-            onClick={() => setShowWeekEditor((value) => !value)}
-            className="app-primary-button px-4 py-3 text-sm"
-          >
-            {showWeekEditor ? "Hide week goals" : "Edit week goals"}
-          </button>
-        </div>
-        {showWeekEditor && (
-          <div className="mt-4 grid gap-4 xl:grid-cols-2">
-            {command.weeks.map((week) => (
-              <WeekCard key={`${week.week_start}-${week.week_end}-${week.id || ""}`} week={week} command={command} saveWeek={saveWeek} removeWeek={removeWeek} saveDay={saveDay} />
-            ))}
-          </div>
-        )}
-      </Card>
+      <WeeklyOverviewList weeks={overviewWeeks} />
       {confirmOpen && (
         <SalesConfirmationSheet
           command={command}
@@ -2371,8 +2355,10 @@ function ConfirmationCounter({ label, value, onChange }) {
 }
 
 function CurrentWeekSummary({ week, command }) {
-  const progress = Number(week.progress || 0);
-  const remaining = Math.max(0, Number(week.weekly_goal || 0) - Number(week.actual || 0));
+  const actual = Number(week.actual ?? command.currentWeekActual ?? 0);
+  const goal = getEffectiveWeeklyGoal(week, command.plan);
+  const progress = goal > 0 ? (actual / goal) * 100 : 0;
+  const remaining = Math.max(0, goal - actual);
   const message =
     remaining <= 0
       ? "Goal met. Everything else is bonus."
@@ -2385,7 +2371,7 @@ function CurrentWeekSummary({ week, command }) {
         <div>
           <div className="text-sm font-bold text-slate-500">{formatRange(week.week_start, week.week_end)}</div>
           <div className="mt-1 text-3xl font-black text-slate-950 dark:text-slate-50">
-            {number(week.actual)} / {number(week.weekly_goal)}
+            {number(actual)} / {number(goal)}
           </div>
           <div className="mt-1 text-sm font-bold text-slate-500">{message}</div>
         </div>
@@ -2476,6 +2462,8 @@ function WeeklyOverviewList({ weeks }) {
 }
 
 function statsPageSummary(command, currentWeek) {
+  const weekActual = Number(currentWeek.actual ?? command.currentWeekActual ?? 0);
+  const weekGoal = getEffectiveWeeklyGoal(currentWeek, command.plan);
   const monthActual = command.dayPlans
     .filter((day) => day.date >= command.currentMonthStart && day.date <= command.currentMonthEnd)
     .reduce((sum, day) => sum + Number(day.actual || 0), 0);
@@ -2483,9 +2471,9 @@ function statsPageSummary(command, currentWeek) {
   const incentiveMet = command.incentives.filter((item) => item.status === "achieved" || item.status === "claimed").length;
   return {
     week: {
-      actual: Number(currentWeek.actual ?? command.currentWeekActual ?? 0),
-      goal: Number(currentWeek.weekly_goal || 0),
-      progress: Number(currentWeek.progress || 0),
+      actual: weekActual,
+      goal: weekGoal,
+      progress: weekGoal > 0 ? (weekActual / weekGoal) * 100 : 0,
     },
     month: {
       actual: monthActual,
@@ -3266,73 +3254,6 @@ function DayEditor({ day, command, onClose, onSave }) {
   );
 }
 
-function WeekCard({ week, command, saveWeek, removeWeek, saveDay }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(week);
-  const weekDays = command.dayPlans.filter((day) => day.date >= week.week_start && day.date <= week.week_end);
-  useEffect(() => setDraft(week), [week]);
-  return (
-    <div className="rounded-[2rem] bg-white p-5 shadow-card">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-black text-slate-500">{week.range_label || "Sales week"}</div>
-          <h3 className="text-xl font-black">{formatRange(week.week_start, week.week_end)}</h3>
-        </div>
-        <Badge tone={week.status === "Overloaded" ? "critical" : week.progress >= 100 ? "ahead" : "on_track"}>{week.status}</Badge>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <MiniMetric label="Goal" value={number(week.weekly_goal)} />
-        <MiniMetric label="Submitted" value={number(week.actual)} />
-        <MiniMetric label="Need" value={number(week.remaining, 1)} />
-        <MiniMetric label="Days left" value={number(week.remainingCapacity, 1)} />
-      </div>
-      <Progress value={week.progress} />
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" onClick={() => setEditing(!editing)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-black"><Edit3 size={15} className="inline" /> Edit week</button>
-        {week.id && <button type="button" onClick={() => removeWeek(week.id)} className="rounded-2xl bg-red-50 px-4 py-2 text-sm font-black text-red-700">Delete override</button>}
-      </div>
-      {editing && (
-        <div className="mt-4 rounded-3xl bg-slate-50 p-4">
-          <WeekMiniEditor week={draft} defaultWeeklyGoal={command.plan.default_weekly_goal} onChange={setDraft} />
-          <button type="button" onClick={() => saveWeek(draft)} className="mt-3 rounded-2xl bg-slate-950 px-4 py-2 font-black text-white">Save week</button>
-        </div>
-      )}
-      <div className="mt-4 grid gap-2">
-        {weekDays.slice(0, 7).map((day) => (
-          <button
-            key={day.date}
-            type="button"
-            onClick={() =>
-              saveDay(day.date, {
-                sales_count: day.actual,
-                sales_notes: day.notes,
-                day_type: day.dayType === "off" ? "normal" : "off",
-                capacity_weight: day.dayType === "off" ? 1 : 0,
-                planned_target: day.plannedTarget,
-                custom_target: day.customTarget ?? "",
-                include_in_calculations: day.dayType === "off",
-                day_notes: day.dayType === "off" ? "" : "Marked off from weekly planner.",
-              })
-            }
-            className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold"
-          >
-            <span className="min-w-0">
-              <span className="block truncate">{formatDate(day.date, { weekday: "short", year: undefined })}</span>
-              <span className="block text-xs text-slate-400">{number(day.actual)} / {number(day.plannedTarget, 1)} sales</span>
-            </span>
-            <span className="shrink-0">{day.dayType === "off" ? "Add workday" : "Mark off"}</span>
-          </button>
-        ))}
-      </div>
-      {week.requiredPerDay > command.plan.max_sales_per_day && (
-        <div className="mt-4 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-800">
-          This week is overloaded. Move sales into next week or add one workday.
-        </div>
-      )}
-    </div>
-  );
-}
-
 function CoachCard({ command }) {
   return (
     <Card title="Coach" icon={Sparkles}>
@@ -3487,31 +3408,6 @@ function EditableList({ items, empty, render }) {
   return (
     <div className="mt-5 grid gap-3">
       {items.length ? items.map((item, index) => <div key={item.id || item.setupId || index}>{render(item, index)}</div>) : <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">{empty}</div>}
-    </div>
-  );
-}
-
-function WeekMiniEditor({ week, defaultWeeklyGoal, onChange, onDelete }) {
-  const usingCustomGoal = Boolean(week.custom_goal_enabled);
-  return (
-    <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:grid-cols-5">
-      <Field label="Label" value={week.range_label || ""} onChange={(v) => onChange({ ...week, range_label: v })} />
-      <Field label="Start" type="date" value={week.week_start} onChange={(v) => onChange({ ...week, week_start: v })} />
-      <Field label="End" type="date" value={week.week_end} onChange={(v) => onChange({ ...week, week_end: v })} />
-      <div className="grid gap-2">
-        <Field label="Goal" type="number" value={week.weekly_goal} onChange={(v) => onChange({ ...week, weekly_goal: v, custom_goal_enabled: true })} />
-        <span className="text-xs font-bold text-slate-500">{usingCustomGoal ? "Custom week goal" : "Using default goal"}</span>
-        {usingCustomGoal && (
-          <button
-            type="button"
-            onClick={() => onChange({ ...week, weekly_goal: Number(defaultWeeklyGoal || 0), custom_goal_enabled: false })}
-            className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
-          >
-            Reset to default
-          </button>
-        )}
-      </div>
-      {onDelete && <button type="button" onClick={onDelete} className="self-end rounded-2xl bg-red-50 px-4 py-3 font-black text-red-700">Delete</button>}
     </div>
   );
 }
