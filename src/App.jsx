@@ -1327,10 +1327,7 @@ function parseNumericInput(value) {
 }
 
 function Dashboard({ command, setPage, onSaveDay }) {
-  const seasonConfirmed = Number(command.salesReview?.seasonReviewedActual || 0);
-  const seasonPending = Number(command.salesReview?.seasonPending || 0);
-  const completion = command.plan.total_goal > 0 ? (seasonConfirmed / command.plan.total_goal) * 100 : 0;
-  const remaining = Math.max(0, Number(command.plan.total_goal || 0) - seasonConfirmed);
+  const completion = command.plan.total_goal > 0 ? (command.completed / command.plan.total_goal) * 100 : 0;
   return (
     <div className="mx-auto grid max-w-6xl gap-4 md:gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)] xl:items-start">
       <TodaySalesCard command={command} onSaveDay={onSaveDay} />
@@ -1343,15 +1340,14 @@ function Dashboard({ command, setPage, onSaveDay }) {
             <div>
               <div className="text-3xl font-black">{percent(completion)}</div>
               <div className="mt-1 text-sm font-bold text-slate-500">
-                Season confirmed: {number(seasonConfirmed)} of {number(command.plan.total_goal)}
+                {number(command.completed)} of {number(command.plan.total_goal)} sales
               </div>
-              {seasonPending > 0 && <div className="mt-1 text-xs font-black text-slate-400">Pending: {number(seasonPending)}</div>}
             </div>
-            <Badge tone={seasonConfirmed > 0 ? command.paceStatus.key : "neutral"}>{seasonConfirmed > 0 ? command.paceStatus.label : "Pending"}</Badge>
+            <Badge tone={command.paceStatus.key}>{command.paceStatus.label}</Badge>
           </div>
-          <Progress value={completion} tone={seasonConfirmed > 0 ? "blue" : "slate"} />
+          <Progress value={completion} />
           <div className="mt-3 text-sm font-bold text-slate-500">
-            {number(remaining)} confirmed sales remaining
+            {number(command.remaining)} remaining · {number(command.requiredPerWorkday, 1)} per workday
           </div>
         </Card>
         <RewardSummary command={command} setPage={setPage} />
@@ -1417,38 +1413,29 @@ function RewardSummary({ command, setPage }) {
 }
 
 function CompactWeekCard({ command }) {
-  const confirmed = Number(command.currentWeek.reviewedActual || 0);
-  const pending = Number(command.currentWeek.pendingActual || 0);
-  const cancelled = Number(command.currentWeek.cancelledActual || 0);
   const weeklyGoal = Number(command.currentWeek.weekly_goal || 0);
-  const remaining = Math.max(0, weeklyGoal - confirmed);
-  const progress = (confirmed / Math.max(1, weeklyGoal)) * 100;
+  const actual = Number(command.currentWeekActual || command.currentWeek.actual || 0);
+  const progress = (actual / Math.max(1, weeklyGoal)) * 100;
   const message =
-    remaining <= 0
+    command.currentWeekRemaining <= 0
       ? "Strong week. Protect the lead."
-      : `${number(remaining, 1)} confirmed sales needed this week.`;
+      : `${number(command.currentWeekRemaining, 1)} sales needed this week.`;
   return (
     <Card title="This week" icon={Calendar} compact>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-sm font-bold text-slate-500">{formatRange(command.currentWeek.week_start, command.currentWeek.week_end)}</div>
-          <div className={`mt-1 text-2xl font-black ${confirmed > 0 ? "text-indigo-700 dark:text-indigo-200" : "text-slate-500 dark:text-slate-300"}`}>
-            Confirmed: {number(confirmed)} / {number(weeklyGoal)}
+          <div className="mt-1 text-2xl font-black">
+            {number(actual)} / {number(weeklyGoal)}
           </div>
-          {(pending > 0 || cancelled > 0) && (
-            <div className="mt-1 flex flex-wrap gap-2 text-xs font-black">
-              {pending > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-500 dark:bg-slate-800 dark:text-slate-300">Pending: {number(pending)}</span>}
-              {cancelled > 0 && <span className="rounded-full bg-rose-50 px-2 py-1 text-rose-700 dark:bg-rose-500/15 dark:text-rose-100">Cancelled: {number(cancelled)}</span>}
-            </div>
-          )}
         </div>
-        <Badge tone={remaining <= 0 ? "ahead" : confirmed > 0 ? "on_track" : "neutral"}>
-          {remaining <= 0 ? "Ahead" : confirmed > 0 ? "Confirmed" : "Pending"}
+        <Badge tone={command.currentWeekRemaining <= 0 ? "ahead" : command.requiredThisWeek > command.plan.max_sales_per_day ? "critical" : "on_track"}>
+          {command.currentWeekRemaining <= 0 ? "Ahead" : "Active"}
         </Badge>
       </div>
-      <Progress value={progress} tone={confirmed > 0 ? "blue" : "slate"} />
+      <Progress value={progress} />
       <div className="mt-3 text-sm font-bold text-slate-500">
-        {message} {command.currentWeekCapacity > 0 ? `${number(command.currentWeek.reviewedRequiredPerDay || 0, 1)} per workday.` : ""}
+        {message} {command.currentWeekCapacity > 0 ? `${number(command.requiredThisWeek, 1)} per workday.` : ""}
       </div>
     </Card>
   );
@@ -1465,6 +1452,8 @@ function TodaySalesCard({ command, onSaveDay }) {
   const [saleType, setSaleType] = useState("doors");
   const [selectedBlockKey, setSelectedBlockKey] = useState("");
   const [logStatus, setLogStatus] = useState("idle");
+  const [cancelStatus, setCancelStatus] = useState("idle");
+  const [lastCancel, setLastCancel] = useState(null);
   const [donePulse, setDonePulse] = useState(false);
   const lastTodaySyncKeyRef = useRef("");
   const feedbackTimerRef = useRef(null);
@@ -1488,6 +1477,8 @@ function TodaySalesCard({ command, onSaveDay }) {
     setSaleType("doors");
     setSelectedBlockKey("");
     setLogStatus("idle");
+    setCancelStatus("idle");
+    setLastCancel(null);
     setDonePulse(false);
     lastTodaySyncKeyRef.current = "";
   }, [today?.date]);
@@ -1504,7 +1495,8 @@ function TodaySalesCard({ command, onSaveDay }) {
 
   if (!today) return null;
 
-  const totalActual = blockDrafts.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
+  const blockTotal = blockDrafts.reduce((sum, block) => sum + Number(block.actual_sales || 0), 0);
+  const totalActual = blockDrafts.length ? blockTotal : Number(manualSales || 0);
   const totalTarget = today.plannedTarget;
   const remaining = Math.max(0, totalTarget - totalActual);
   const activeBlock = currentBlock && !currentBlock.is_break ? currentBlock : visibleBlocks.find((block) => !block.isPast) || visibleBlocks[0];
@@ -1528,11 +1520,14 @@ function TodaySalesCard({ command, onSaveDay }) {
         : `${number(remaining, 1)} sales left for today's goal.`;
   const logButtonText =
     logStatus === "saving" ? "Saving..." : logStatus === "added" ? "Added ✓" : logStatus === "error" ? "Try again" : "Log Sales";
+  const cancelBusy = cancelStatus === "saving" || cancelStatus === "undoing";
 
   async function logSale() {
     const key = selectedBlock?.key;
     if (!key || logStatus === "saving") return;
     const amount = Math.max(1, Number(logAmount || 1));
+    setLastCancel(null);
+    setCancelStatus("idle");
     setLogStatus("saving");
     const updatedBlocks = blockDrafts.map((block) => {
       if (block.key !== key) return block;
@@ -1568,6 +1563,57 @@ function TodaySalesCard({ command, onSaveDay }) {
       setLogStatus("error");
       window.clearTimeout(feedbackTimerRef.current);
       feedbackTimerRef.current = window.setTimeout(() => setLogStatus("idle"), 1400);
+    }
+  }
+
+  async function cancelOneSale() {
+    if (cancelBusy || totalActual <= 0) return;
+    const previousBlocks = blockDrafts;
+    const previousTotal = totalActual;
+    const result = cancelOneFromBlocks(blockDrafts, activeBlock?.key);
+    const nextBlocks = result?.blocks || blockDrafts;
+    const nextTotal = Math.max(0, totalActual - 1);
+    setCancelStatus("saving");
+    setManualSales(nextTotal);
+    setBlockDrafts(nextBlocks);
+    try {
+      const saved = await save(nextBlocks, nextTotal, result?.activeKey || activeBlock?.key);
+      if (saved === false) {
+        setManualSales(previousTotal);
+        setBlockDrafts(previousBlocks);
+        setCancelStatus("error");
+        return;
+      }
+      setLastCancel({ blocks: previousBlocks, total: previousTotal, activeKey: result?.activeKey || activeBlock?.key });
+      setCancelStatus("cancelled");
+    } catch {
+      setManualSales(previousTotal);
+      setBlockDrafts(previousBlocks);
+      setCancelStatus("error");
+    }
+  }
+
+  async function undoCancelOne() {
+    if (!lastCancel || cancelBusy) return;
+    const currentBlocks = blockDrafts;
+    const currentTotal = totalActual;
+    setCancelStatus("undoing");
+    setManualSales(lastCancel.total);
+    setBlockDrafts(lastCancel.blocks);
+    try {
+      const saved = await save(lastCancel.blocks, lastCancel.total, lastCancel.activeKey);
+      if (saved === false) {
+        setManualSales(currentTotal);
+        setBlockDrafts(currentBlocks);
+        setCancelStatus("error");
+        return;
+      }
+      setLastCancel(null);
+      setCancelStatus("idle");
+    } catch {
+      setManualSales(currentTotal);
+      setBlockDrafts(currentBlocks);
+      setCancelStatus("error");
     }
   }
 
@@ -1660,18 +1706,44 @@ function TodaySalesCard({ command, onSaveDay }) {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => setAddSalesOpen((value) => !value)}
-        className={
-          addSalesOpen
-            ? "mt-4 inline-flex min-h-10 items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white transition hover:bg-slate-800 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:bg-slate-50 dark:text-slate-950"
-            : "mt-4 flex min-h-16 w-full items-center justify-center gap-2 rounded-[1.5rem] bg-gradient-to-r from-indigo-600 to-emerald-600 px-5 py-4 text-base font-black text-white shadow-lg shadow-indigo-200/60 transition hover:from-indigo-700 hover:to-emerald-700 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:shadow-none sm:max-w-sm"
-        }
-      >
-        {!addSalesOpen && <PlusCircle size={20} />}
-        {addSalesOpen ? "Close" : "Add Sales"}
-      </button>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setAddSalesOpen((value) => !value)}
+          className={
+            addSalesOpen
+              ? "inline-flex min-h-10 items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white transition hover:bg-slate-800 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:bg-slate-50 dark:text-slate-950"
+              : "flex min-h-16 w-full items-center justify-center gap-2 rounded-[1.5rem] bg-gradient-to-r from-indigo-600 to-emerald-600 px-5 py-4 text-base font-black text-white shadow-lg shadow-indigo-200/60 transition hover:from-indigo-700 hover:to-emerald-700 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:shadow-none sm:max-w-sm"
+          }
+        >
+          {!addSalesOpen && <PlusCircle size={20} />}
+          {addSalesOpen ? "Close" : "Add Sales"}
+        </button>
+        <button
+          type="button"
+          onClick={cancelOneSale}
+          disabled={cancelBusy || totalActual <= 0}
+          className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-red-950/30"
+        >
+          {cancelStatus === "saving" ? "Cancelling..." : "Cancel 1"}
+        </button>
+      </div>
+      {(cancelStatus === "cancelled" || cancelStatus === "undoing" || cancelStatus === "error") && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-black">
+          {cancelStatus === "error" ? (
+            <span className="text-red-600">Couldn’t cancel. Try again.</span>
+          ) : (
+            <>
+              <span className="text-slate-500">Cancelled 1 sale ✓</span>
+              {lastCancel && (
+                <button type="button" onClick={undoCancelOne} disabled={cancelBusy} className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 transition hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-100">
+                  {cancelStatus === "undoing" ? "Undoing..." : "Undo"}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div className={`${addSalesOpen ? "mt-3" : "mt-0"} rounded-[1.75rem] ${addSalesOpen ? "border-2 border-indigo-100 bg-indigo-50/60 p-2 dark:border-slate-700 dark:bg-slate-950" : ""}`}>
         {addSalesOpen && (
@@ -2161,6 +2233,7 @@ function ThemeToggle({ theme, onToggle }) {
 }
 
 function WeeklyPlanner({ command, saveSalesConfirmation }) {
+  const showSalesConfirmationReview = false;
   const indexedWeeks = command.weeks.map((week, index) => ({ ...week, seasonWeekNumber: index + 1 }));
   const currentWeek =
     indexedWeeks.find((week) => week.week_start === command.currentWeek.week_start && week.week_end === command.currentWeek.week_end) ||
@@ -2187,16 +2260,16 @@ function WeeklyPlanner({ command, saveSalesConfirmation }) {
         title="Weekly progress"
         description="See this week, the recent trend, and the next few goals coming up."
       />
-      <section className="grid gap-4 lg:grid-cols-[1fr_0.8fr] lg:items-stretch">
+      <section className={showSalesConfirmationReview ? "grid gap-4 lg:grid-cols-[1fr_0.8fr] lg:items-stretch" : "grid gap-4 lg:max-w-3xl"}>
         <CurrentWeekSummary week={currentWeek} command={command} />
-        <ConfirmSalesSummaryCard command={command} week={currentWeek} onOpen={() => setConfirmOpen(true)} />
+        {showSalesConfirmationReview && <ConfirmSalesSummaryCard command={command} week={currentWeek} onOpen={() => setConfirmOpen(true)} />}
       </section>
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-stretch">
         <StatsTotals stats={stats} />
         <WeeklyOverviewGraph data={graphData} />
       </section>
       <WeeklyOverviewList weeks={overviewWeeks} />
-      {confirmOpen && (
+      {showSalesConfirmationReview && confirmOpen && (
         <SalesConfirmationSheet
           command={command}
           week={currentWeek}
@@ -3646,6 +3719,34 @@ function blockDraftsFromDay(day) {
     isCurrent: block.isCurrent,
     minutesLeft: block.minutesLeft,
   }));
+}
+
+function cancelOneFromBlocks(blocks, preferredKey) {
+  if (!blocks.length) return { blocks: [], activeKey: preferredKey };
+  const candidates = blocks.filter((block) => block.active && !block.is_break && Number(block.actual_sales || 0) > 0);
+  const preferred = candidates.find((block) => block.key === preferredKey);
+  const target = preferred || [...candidates].reverse()[0];
+  if (!target) return null;
+  return {
+    activeKey: target.key,
+    blocks: blocks.map((block) => {
+      if (block.key !== target.key) return block;
+      const nextActual = Math.max(0, Number(block.actual_sales || 0) - 1);
+      return {
+        ...block,
+        actual_sales: nextActual,
+        type_breakdown: subtractOneSaleType(block.type_breakdown, Number(block.actual_sales || 0)),
+      };
+    }),
+  };
+}
+
+function subtractOneSaleType(value, currentActual) {
+  const breakdown = normalizeSaleTypeBreakdown(value, currentActual);
+  const next = { ...breakdown };
+  if (next.doors >= next.phone && next.doors > 0) next.doors -= 1;
+  else if (next.phone > 0) next.phone -= 1;
+  return resizeSaleTypeBreakdown(next, Math.max(0, Number(currentActual || 0) - 1));
 }
 
 function reconcileBlocksToTotal(blocks, desiredTotal) {
