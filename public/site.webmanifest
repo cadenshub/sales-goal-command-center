@@ -9,17 +9,19 @@
   "background_color": "#F8FAFC",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "/icon-192x192-20260520.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/icon-512.png",
+      "src": "/icon-512x512-20260520.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/maskable-icon-512.png",
+      "src": "/maskable-icon-512x512-20260520.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
