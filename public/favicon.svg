@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sales app icon">
+  <defs>
+    <linearGradient id="salesIconGradient" x1="70" y1="48" x2="440" y2="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="0.38" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#4c1d95"/>
+    </linearGradient>
+    <filter id="salesIconShadow" x="-12%" y="-12%" width="124%" height="124%">
+      <feDropShadow dx="8" dy="10" stdDeviation="2" flood-color="#261254" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="url(#salesIconGradient)"/>
+  <path
+    fill="#fff"
+    filter="url(#salesIconShadow)"
+    d="M174 118h164a32 32 0 0 1 0 64H174a32 32 0 0 1 0-64Zm-26 32h40v118h-40a36 36 0 0 1-36-36v-46a36 36 0 0 1 36-36Zm26 74h164a32 32 0 0 1 0 64H174a32 32 0 0 1 0-64Zm150 30h40a36 36 0 0 1 36 36v46a36 36 0 0 1-36 36h-40V254ZM148 330h190a32 32 0 0 1 0 64H148a32 32 0 0 1 0-64Z"
+  />
+</svg>
