@@ -2911,7 +2911,8 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
   const [confettiKey, setConfettiKey] = useState(0);
   const claimFeedbackTimerRef = useRef(null);
   const rewards = dedupeById(command.incentives).filter((item) => String(item.title || "").trim());
-  const achievedCount = rewards.filter((item) => item.status === "achieved" || item.status === "claimed").length;
+  const rewardGroups = organizeRewards(rewards);
+  const achievedCount = rewardGroups.ready.length + rewardGroups.claimed.length;
   const nextReward = command.nextIncentive;
 
   useEffect(() => () => window.clearTimeout(claimFeedbackTimerRef.current), []);
@@ -2940,13 +2941,15 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
       />
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
         <Card title="Reward Summary" icon={Gift} compact className="incentive-outline">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatTile label="Rewards" value={`${number(achievedCount)} / ${number(rewards.length)}`} detail="Achieved or claimed" />
             <StatTile
               label="Next Reward"
               value={nextReward ? nextReward.title : "None yet"}
               detail={nextReward ? `${number(Math.max(0, nextReward.target - nextReward.current), 1)} away` : "Add one to track progress"}
             />
+            <StatTile label="Ready to Claim" value={number(rewardGroups.ready.length)} detail="Goals completed" />
+            <StatTile label="Claimed" value={number(rewardGroups.claimed.length)} detail="Rewards collected" />
           </div>
         </Card>
         <Card title="Reward Setup" icon={PlusCircle} compact className="incentive-outline">
@@ -2972,20 +2975,30 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
           </div>
         </Card>
       </div>
-      <Card title="Saved Rewards" icon={Trophy} compact className="incentive-outline">
+      <Card title="Your Rewards" icon={Trophy} compact className="incentive-outline">
         {rewards.length ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {rewards.map((item) => (
-              <RewardCard
-                key={item.id}
-                incentive={item}
-                onEdit={() => setEditingReward(item)}
-                onClaim={() => claimReward(item)}
-                onDelete={() => removeIncentive(item.id)}
-                claiming={claimingRewardId === item.id}
-                recentlyClaimed={claimedRewardId === item.id}
-              />
-            ))}
+          <div className="grid gap-6">
+            <RewardGroup
+              title="Ready to claim"
+              description="You hit these goals. Collect the rewards when you are ready."
+              rewards={rewardGroups.ready}
+              tone="ready"
+              renderReward={renderReward}
+            />
+            <RewardGroup
+              title="In progress"
+              description="Active rewards, ordered by how close they are."
+              rewards={rewardGroups.active}
+              tone="active"
+              renderReward={renderReward}
+            />
+            <RewardGroup
+              title="Claimed"
+              description="Rewards you have already collected."
+              rewards={rewardGroups.claimed}
+              tone="claimed"
+              renderReward={renderReward}
+            />
           </div>
         ) : (
           <div className="rounded-3xl bg-slate-50 p-5 text-sm font-bold text-slate-500 dark:bg-slate-950">
@@ -3004,6 +3017,59 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
         />
       )}
     </div>
+  );
+
+  function renderReward(item) {
+    return (
+      <RewardCard
+        key={item.id}
+        incentive={item}
+        onEdit={() => setEditingReward(item)}
+        onClaim={() => claimReward(item)}
+        onDelete={() => removeIncentive(item.id)}
+        claiming={claimingRewardId === item.id}
+        recentlyClaimed={claimedRewardId === item.id}
+      />
+    );
+  }
+}
+
+function organizeRewards(rewards) {
+  const byProgress = (a, b) => b.progress - a.progress || a.target - b.target || a.title.localeCompare(b.title);
+  const byMostRecent = (a, b) =>
+    String(b.updated_at || b.claimed_at || "").localeCompare(String(a.updated_at || a.claimed_at || "")) ||
+    a.title.localeCompare(b.title);
+
+  return {
+    ready: rewards.filter((item) => item.status === "achieved").sort(byProgress),
+    active: rewards.filter((item) => item.status !== "achieved" && item.status !== "claimed").sort(byProgress),
+    claimed: rewards.filter((item) => item.status === "claimed").sort(byMostRecent),
+  };
+}
+
+function RewardGroup({ title, description, rewards, tone, renderReward }) {
+  if (!rewards.length) return null;
+  const toneClasses = {
+    ready: "bg-emerald-50 text-emerald-800 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-100 dark:ring-emerald-800/60",
+    active: "bg-purple-50 text-purple-800 ring-purple-200 dark:bg-purple-950/30 dark:text-purple-100 dark:ring-purple-800/60",
+    claimed: "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-950 dark:text-slate-200 dark:ring-slate-700",
+  };
+
+  return (
+    <section aria-labelledby={`reward-group-${tone}`}>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 id={`reward-group-${tone}`} className="text-lg font-black text-slate-950 dark:text-slate-50">{title}</h3>
+          <p className="mt-1 text-sm font-bold text-slate-500">{description}</p>
+        </div>
+        <span className={`rounded-full px-3 py-1 text-xs font-black ring-1 ${toneClasses[tone]}`}>
+          {rewards.length}
+        </span>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {rewards.map(renderReward)}
+      </div>
+    </section>
   );
 }
 
