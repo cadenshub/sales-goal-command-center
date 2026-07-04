@@ -175,6 +175,8 @@ export function buildCommandCenter(workspace) {
     currentStreak,
     currentWeekActual,
     totalGoal: Number(plan.total_goal || 0),
+    entriesByDate,
+    timeBlocksByDate,
   });
   const nextIncentive = incentives
     .filter((item) => item.status !== "claimed" && item.progress < 100)
@@ -477,21 +479,60 @@ function groupWeeklyConfirmations(confirmations) {
 
 function evaluateIncentives(incentives, metrics) {
   return incentives.map((incentive) => {
-    let current = metrics.completed;
-    if (incentive.incentive_type === "streak") current = metrics.currentStreak;
-    if (incentive.incentive_type === "weekly_goal") current = metrics.currentWeekActual;
-    if (incentive.incentive_type === "season_goal") current = metrics.completed;
+    const period = incentive.incentive_period || legacyIncentivePeriod(incentive.incentive_type);
+    const range = incentiveDateRange(incentive, period);
+    let current = period === "season"
+      ? metrics.completed
+      : range
+        ? sumSales(range.start, range.end, metrics.entriesByDate, metrics.timeBlocksByDate)
+        : 0;
+    if (!incentive.incentive_period && incentive.incentive_type === "streak") current = metrics.currentStreak;
     const target = Number(incentive.target_value || metrics.totalGoal || 0);
     const progress = target > 0 ? Math.min(100, (current / target) * 100) : 0;
     const achieved = progress >= 100;
     return {
       ...incentive,
+      incentive_source: incentive.incentive_source || "personal",
+      incentive_period: period,
+      period_start: range?.start || null,
+      period_end: range?.end || null,
       current,
       target,
       progress,
       status: incentive.status === "claimed" ? "claimed" : achieved ? "achieved" : progress > 0 ? "in_progress" : "locked",
     };
   });
+}
+
+function legacyIncentivePeriod(incentiveType) {
+  if (incentiveType === "weekly_goal") return "week";
+  return "season";
+}
+
+function incentiveDateRange(incentive, period) {
+  if (period === "month") {
+    const selectedDate = parseISO(incentive.target_date || incentive.start_date);
+    if (!selectedDate) return null;
+    return {
+      start: toISO(monthStart(selectedDate)),
+      end: toISO(monthEnd(selectedDate)),
+    };
+  }
+  if (period === "week") {
+    const start = incentive.start_date || incentive.target_date;
+    if (!parseISO(start)) return null;
+    const end = incentive.end_date || toISO(addDays(parseISO(start), 6));
+    return parseISO(end) && end >= start ? { start, end } : null;
+  }
+  if (period === "day") {
+    return parseISO(incentive.target_date) ? { start: incentive.target_date, end: incentive.target_date } : null;
+  }
+  if (period === "custom") {
+    return parseISO(incentive.start_date) && parseISO(incentive.end_date) && incentive.end_date >= incentive.start_date
+      ? { start: incentive.start_date, end: incentive.end_date }
+      : null;
+  }
+  return null;
 }
 
 function getGoalRealism(requiredPerWorkday, maxSalesPerDay, remainingCapacity) {

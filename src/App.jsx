@@ -2398,13 +2398,29 @@ function GoalsPage({ workspace, command, savePlan }) {
   );
 }
 
+const incentiveFilters = [
+  { value: "all", label: "All" },
+  { value: "personal", label: "Personal" },
+  { value: "company", label: "Company" },
+  { value: "month", label: "Monthly" },
+  { value: "week", label: "Weekly" },
+  { value: "day", label: "Daily" },
+  { value: "custom", label: "Custom" },
+];
+
 function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) {
   const [editingReward, setEditingReward] = useState(null);
   const [claimingRewardId, setClaimingRewardId] = useState("");
   const [claimedRewardId, setClaimedRewardId] = useState("");
   const [confettiKey, setConfettiKey] = useState(0);
+  const [activeFilter, setActiveFilter] = useState("all");
   const claimFeedbackTimerRef = useRef(null);
-  const rewards = dedupeById(command.incentives).filter((item) => String(item.title || "").trim());
+  const rewards = dedupeById(command.incentives)
+    .filter((item) => String(item.title || "").trim())
+    .map(normalizeIncentiveDisplayFields);
+  const filteredRewards = rewards.filter((item) => incentiveMatchesFilter(item, activeFilter));
+  const rewardGroups = organizeRewards(filteredRewards);
+  const monthlyRewards = rewards.filter((item) => item.incentive_period === "month");
   const achievedCount = rewards.filter((item) => item.status === "achieved" || item.status === "claimed").length;
   const nextReward = command.nextIncentive;
 
@@ -2424,6 +2440,33 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
     }
   }
 
+  async function reopenReward(item) {
+    if (!item?.id || claimingRewardId || item.status !== "claimed") return;
+    if (!window.confirm("Move this reward back to active?")) return;
+    setClaimingRewardId(item.id);
+    try {
+      const status = item.progress >= 100 ? "achieved" : item.progress > 0 ? "in_progress" : "locked";
+      await saveIncentive({ ...item, status });
+    } finally {
+      setClaimingRewardId("");
+    }
+  }
+
+  function renderReward(item) {
+    return (
+      <RewardCard
+        key={item.id}
+        incentive={item}
+        onEdit={() => setEditingReward(item)}
+        onClaim={() => claimReward(item)}
+        onReopen={() => reopenReward(item)}
+        onDelete={() => removeIncentive(item.id)}
+        saving={claimingRewardId === item.id}
+        recentlyClaimed={claimedRewardId === item.id}
+      />
+    );
+  }
+
   return (
     <div className="mx-auto grid max-w-6xl gap-4 md:gap-5">
       <IncentiveConfetti burstKey={confettiKey} />
@@ -2434,19 +2477,21 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
       />
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
         <Card title="Reward Summary" icon={Gift} compact className="incentive-outline">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatTile label="Rewards" value={`${number(achievedCount)} / ${number(rewards.length)}`} detail="Achieved or claimed" />
             <StatTile
               label="Next Reward"
               value={nextReward ? nextReward.title : "None yet"}
               detail={nextReward ? `${number(Math.max(0, nextReward.target - nextReward.current), 1)} away` : "Add one to track progress"}
             />
+            <StatTile label="Ready to Claim" value={number(rewards.filter((item) => item.status === "achieved").length)} detail="Goals completed" />
+            <StatTile label="Claimed" value={number(rewards.filter((item) => item.status === "claimed").length)} detail="Rewards collected" />
           </div>
         </Card>
         <Card title="Reward Setup" icon={PlusCircle} compact className="incentive-outline">
           <div className="min-w-0">
             <p className="text-sm font-bold text-slate-500">
-              Set rewards for milestones, weekly wins, streaks, or the full season.
+              Set personal or company rewards for a season, month, week, day, or custom date range.
             </p>
             {!rewards.length && (
               <div className="mt-4 rounded-3xl bg-purple-50 p-4 text-sm font-bold text-purple-800 dark:bg-purple-950/30 dark:text-purple-100">
@@ -2466,24 +2511,56 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
           </div>
         </Card>
       </div>
-      <Card title="Saved Rewards" icon={Trophy} compact className="incentive-outline">
-        {rewards.length ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {rewards.map((item) => (
-              <RewardCard
-                key={item.id}
-                incentive={item}
-                onEdit={() => setEditingReward(item)}
-                onClaim={() => claimReward(item)}
-                onDelete={() => removeIncentive(item.id)}
-                claiming={claimingRewardId === item.id}
-                recentlyClaimed={claimedRewardId === item.id}
-              />
+
+      {monthlyRewards.length > 0 && <MonthlyGoalsSection rewards={monthlyRewards} />}
+
+      <Card title="Your Rewards" icon={Trophy} compact className="incentive-outline">
+        <div className="mb-5" aria-label="Filter incentives">
+          <div className="flex flex-wrap gap-2">
+            {incentiveFilters.map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                onClick={() => setActiveFilter(filter.value)}
+                aria-pressed={activeFilter === filter.value}
+                className={`rounded-full px-4 py-2 text-sm font-black transition ${
+                  activeFilter === filter.value
+                    ? "bg-purple-600 text-white shadow-sm"
+                    : "bg-slate-100 text-slate-600 hover:bg-purple-50 hover:text-purple-700 dark:bg-slate-800 dark:text-slate-200"
+                }`}
+              >
+                {filter.label}
+              </button>
             ))}
+          </div>
+        </div>
+        {filteredRewards.length ? (
+          <div className="grid gap-6">
+            <RewardGroup
+              title="Ready to claim"
+              description="You hit these goals. Collect the rewards when you are ready."
+              rewards={rewardGroups.ready}
+              tone="ready"
+              renderReward={renderReward}
+            />
+            <RewardGroup
+              title="In progress"
+              description="Active rewards, ordered by how close they are."
+              rewards={rewardGroups.active}
+              tone="active"
+              renderReward={renderReward}
+            />
+            <RewardGroup
+              title="Claimed"
+              description="Rewards you have already collected."
+              rewards={rewardGroups.claimed}
+              tone="claimed"
+              renderReward={renderReward}
+            />
           </div>
         ) : (
           <div className="rounded-3xl bg-slate-50 p-5 text-sm font-bold text-slate-500 dark:bg-slate-950">
-            Your saved rewards will show here.
+            {rewards.length ? "No rewards match this filter." : "Your saved rewards will show here."}
           </div>
         )}
       </Card>
@@ -2498,6 +2575,107 @@ function IncentivesPage({ command, workspace, saveIncentive, removeIncentive }) 
         />
       )}
     </div>
+  );
+}
+
+function normalizeIncentiveDisplayFields(incentive) {
+  return {
+    ...incentive,
+    incentive_source: incentive.incentive_source || "personal",
+    incentive_period: incentive.incentive_period || (incentive.incentive_type === "weekly_goal" ? "week" : "season"),
+  };
+}
+
+function incentiveMatchesFilter(incentive, filter) {
+  if (filter === "all") return true;
+  if (filter === "personal" || filter === "company") return incentive.incentive_source === filter;
+  return incentive.incentive_period === filter;
+}
+
+function organizeRewards(rewards) {
+  const byProgress = (a, b) =>
+    Number(b.progress || 0) - Number(a.progress || 0) ||
+    Number(a.target || 0) - Number(b.target || 0) ||
+    String(a.title || "").localeCompare(String(b.title || ""));
+  const byMostRecent = (a, b) =>
+    String(b.updated_at || "").localeCompare(String(a.updated_at || "")) ||
+    String(a.title || "").localeCompare(String(b.title || ""));
+
+  return {
+    ready: rewards.filter((item) => item.status === "achieved").sort(byProgress),
+    active: rewards.filter((item) => item.status !== "achieved" && item.status !== "claimed").sort(byProgress),
+    claimed: rewards.filter((item) => item.status === "claimed").sort(byMostRecent),
+  };
+}
+
+function RewardGroup({ title, description, rewards, tone, renderReward }) {
+  if (!rewards.length) return null;
+  const toneClasses = {
+    ready: "bg-emerald-50 text-emerald-800 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-100 dark:ring-emerald-800/60",
+    active: "bg-purple-50 text-purple-800 ring-purple-200 dark:bg-purple-950/30 dark:text-purple-100 dark:ring-purple-800/60",
+    claimed: "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-950 dark:text-slate-200 dark:ring-slate-700",
+  };
+
+  return (
+    <section aria-labelledby={`reward-group-${tone}`}>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 id={`reward-group-${tone}`} className="text-lg font-black text-slate-950 dark:text-slate-50">{title}</h3>
+          <p className="mt-1 text-sm font-bold text-slate-500">{description}</p>
+        </div>
+        <span className={`rounded-full px-3 py-1 text-xs font-black ring-1 ${toneClasses[tone]}`}>{rewards.length}</span>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {rewards.map(renderReward)}
+      </div>
+    </section>
+  );
+}
+
+function MonthlyGoalsSection({ rewards }) {
+  const sources = [
+    { value: "personal", label: "Personal Monthly" },
+    { value: "company", label: "Company Monthly" },
+  ];
+  return (
+    <Card title="Monthly Goals" icon={Calendar} compact className="incentive-outline">
+      <div className="grid gap-4 lg:grid-cols-2">
+        {sources.map((source) => {
+          const sourceRewards = rewards.filter((item) => item.incentive_source === source.value);
+          return (
+            <section key={source.value} className="min-w-0 rounded-3xl bg-slate-50 p-4 dark:bg-slate-950">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="font-black text-slate-950 dark:text-slate-50">{source.label}</h3>
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 shadow-sm dark:bg-slate-800 dark:text-slate-200">
+                  {sourceRewards.length}
+                </span>
+              </div>
+              {sourceRewards.length ? (
+                <div className="grid gap-3">
+                  {sourceRewards.map((item) => (
+                    <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm dark:bg-slate-900">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-black text-slate-950 dark:text-slate-50">{item.title}</div>
+                          <div className="mt-1 text-xs font-bold text-slate-500">{incentiveDateLabel(item)}</div>
+                        </div>
+                        <Badge tone={incentiveStatusTone(item.status)}>{incentiveStatusLabel(item.status)}</Badge>
+                      </div>
+                      <Progress value={item.progress} tone="purple" />
+                      <div className="mt-2 text-xs font-black text-slate-500">
+                        {number(item.current, 1)} / {number(item.target, 1)} sales
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm font-bold text-slate-500">No {source.value} monthly rewards yet.</p>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 
@@ -2548,54 +2726,75 @@ function IncentivePanel({ title, icon: Icon, children }) {
   );
 }
 
-function RewardCard({ incentive, onEdit, onClaim, onDelete, claiming = false, recentlyClaimed = false }) {
+function RewardCard({ incentive, onEdit, onClaim, onReopen, onDelete, saving = false, recentlyClaimed = false }) {
   const claimed = incentive.status === "claimed";
   return (
-    <div className={`incentive-outline rounded-[1.5rem] p-4 ${recentlyClaimed ? "celebrate" : ""}`}>
+    <article className={`incentive-outline min-w-0 rounded-[1.5rem] p-4 ${recentlyClaimed ? "celebrate" : ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="break-words text-xl font-black text-slate-950 dark:text-slate-50">{incentive.title}</div>
-          <div className="mt-1 text-sm font-bold capitalize text-slate-500">{incentive.incentive_type.replaceAll("_", " ")}</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <span className={`rounded-full px-2.5 py-1 text-xs font-black ${
+              incentive.incentive_source === "company"
+                ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-200"
+                : "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-200"
+            }`}>
+              {incentive.incentive_source === "company" ? "Company" : "Personal"}
+            </span>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+              {incentivePeriodLabel(incentive.incentive_period)}
+            </span>
+          </div>
         </div>
-        <Badge tone={incentive.status === "achieved" ? "ahead" : incentive.status === "locked" ? "neutral" : "on_track"}>
-          {incentive.status.replaceAll("_", " ")}
-        </Badge>
+        <Badge tone={incentiveStatusTone(incentive.status)}>{incentiveStatusLabel(incentive.status)}</Badge>
       </div>
+      <div className="mt-3 text-sm font-bold text-slate-500">{incentiveDateLabel(incentive)}</div>
+      {incentive.description && <p className="mt-2 break-words text-sm font-semibold text-slate-600 dark:text-slate-300">{incentive.description}</p>}
       <Progress value={incentive.progress} tone="purple" />
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm font-bold text-slate-500">
-        <span>{number(incentive.current, 1)} / {number(incentive.target, 1)}</span>
+        <span>{number(incentive.current, 1)} / {number(incentive.target, 1)} sales</span>
         <span>{percent(incentive.progress)}</span>
       </div>
+      {incentive.reward_value !== null && incentive.reward_value !== undefined && incentive.reward_value !== "" && (
+        <div className="mt-3 rounded-2xl bg-purple-50 px-3 py-2 text-sm font-black text-purple-800 dark:bg-purple-950/30 dark:text-purple-100">
+          Value / cost: {number(incentive.reward_value, 2)}
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" onClick={onEdit} className="app-secondary-button px-4 py-3 text-sm">
+        <button type="button" onClick={onEdit} disabled={saving} className="app-secondary-button px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60">
           Edit
         </button>
         {incentive.status === "achieved" && (
           <button
             type="button"
             onClick={onClaim}
-            disabled={claiming}
+            disabled={saving}
             className="rounded-2xl bg-purple-600 px-4 py-3 text-sm font-black text-white transition hover:bg-purple-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {claiming ? "Claiming..." : "Claim"}
+            {saving ? "Saving..." : "Claim"}
           </button>
         )}
         {claimed && (
-          <button type="button" disabled className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 ring-1 ring-emerald-200 disabled:cursor-not-allowed dark:bg-emerald-950/30 dark:text-emerald-100 dark:ring-emerald-700/50">
-            Claimed ✓
+          <button
+            type="button"
+            onClick={onReopen}
+            disabled={saving}
+            className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-800 ring-1 ring-amber-200 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-950/30 dark:text-amber-100 dark:ring-amber-700/50"
+          >
+            {saving ? "Saving..." : "Reopen"}
           </button>
         )}
-        <button type="button" onClick={onDelete} className="app-danger-button px-4 py-3 text-sm">
+        <button type="button" onClick={onDelete} disabled={saving} className="app-danger-button px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60">
           Delete
         </button>
       </div>
-    </div>
+    </article>
   );
 }
 
 function RewardModal({ incentive, onSave, onClose }) {
-  const [draft, setDraft] = useState(() => ({ ...incentive }));
-  const [more, setMore] = useState(Boolean(incentive.description || incentive.reward_value || incentive.target_date));
+  const [draft, setDraft] = useState(() => normalizeIncentiveDisplayFields(incentive));
+  const [more, setMore] = useState(Boolean(incentive.description || incentive.reward_value));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const submitLock = useRef(false);
@@ -2623,8 +2822,8 @@ function RewardModal({ incentive, onSave, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-end bg-slate-950/45 sm:place-items-center">
-      <form onSubmit={submit} className="max-h-[92vh] w-full overflow-auto rounded-t-[2rem] bg-white p-5 shadow-glow dark:bg-slate-900 sm:max-w-xl sm:rounded-[2rem] md:p-6">
+    <div className="fixed inset-0 z-50 grid place-items-end overflow-x-hidden bg-slate-950/45 sm:place-items-center sm:p-4">
+      <form onSubmit={submit} className="max-h-[92vh] w-full min-w-0 overflow-y-auto overflow-x-hidden rounded-t-[2rem] bg-white p-5 shadow-glow dark:bg-slate-900 sm:max-w-2xl sm:rounded-[2rem] md:p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-black uppercase tracking-wide text-purple-600">Reward</div>
@@ -2636,20 +2835,33 @@ function RewardModal({ incentive, onSave, onClose }) {
         </div>
         <div className="grid gap-4">
           <Field label="Reward name" value={draft.title} required onChange={(v) => setDraft({ ...draft, title: v })} />
-          <Field
-            label="Reward type"
-            type="select"
-            value={draft.incentive_type}
-            onChange={(v) => setDraft({ ...draft, incentive_type: v })}
-            options={[
-              { value: "sales_milestone", label: "Sales milestone" },
-              { value: "weekly_goal", label: "Weekly goal" },
-              { value: "streak", label: "Streak" },
-              { value: "season_goal", label: "Season goal" },
-              { value: "custom", label: "Custom" },
-            ]}
-          />
-          <Field label="Reward goal" type="number" value={draft.target_value} onChange={(v) => setDraft({ ...draft, target_value: v })} />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Reward source"
+              type="select"
+              value={draft.incentive_source}
+              onChange={(v) => setDraft({ ...draft, incentive_source: v })}
+              options={[
+                { value: "personal", label: "Personal" },
+                { value: "company", label: "Company" },
+              ]}
+            />
+            <Field
+              label="Reward goal"
+              type="select"
+              value={draft.incentive_period}
+              onChange={(v) => setDraft({ ...draft, incentive_period: v })}
+              options={[
+                { value: "season", label: "Season" },
+                { value: "month", label: "Monthly" },
+                { value: "week", label: "Weekly" },
+                { value: "day", label: "Daily" },
+                { value: "custom", label: "Custom" },
+              ]}
+            />
+          </div>
+          <Field label="Target sales" type="number" value={draft.target_value} onChange={(v) => setDraft({ ...draft, target_value: v })} />
+          <IncentivePeriodFields draft={draft} onChange={setDraft} />
         </div>
         <button type="button" onClick={() => setMore((value) => !value)} className="app-secondary-button mt-4 px-4 py-3 text-sm">
           {more ? "Hide more options" : "More options"}
@@ -2657,8 +2869,7 @@ function RewardModal({ incentive, onSave, onClose }) {
         {more && (
           <div className="mt-4 grid gap-4 rounded-3xl bg-slate-50 p-4">
             <Field label="Description" type="textarea" value={draft.description || ""} onChange={(v) => setDraft({ ...draft, description: v })} />
-            <Field label="Reward value" type="number" value={draft.reward_value || ""} onChange={(v) => setDraft({ ...draft, reward_value: v })} />
-            <Field label="Target date" type="date" value={draft.target_date || ""} onChange={(v) => setDraft({ ...draft, target_date: v })} />
+            <Field label="Reward value / cost" type="number" value={draft.reward_value ?? ""} onChange={(v) => setDraft({ ...draft, reward_value: v })} />
           </div>
         )}
         {formError && <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{formError}</div>}
@@ -2668,6 +2879,86 @@ function RewardModal({ incentive, onSave, onClose }) {
       </form>
     </div>
   );
+}
+
+function IncentivePeriodFields({ draft, onChange }) {
+  if (draft.incentive_period === "month") {
+    return (
+      <Field
+        label="Reward month"
+        type="month"
+        value={String(draft.target_date || "").slice(0, 7)}
+        onChange={(value) => onChange({ ...draft, target_date: value ? `${value}-01` : "" })}
+      />
+    );
+  }
+  if (draft.incentive_period === "week") {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Week start"
+          type="date"
+          value={draft.start_date || ""}
+          onChange={(value) => {
+            const parsed = parseISO(value);
+            onChange({
+              ...draft,
+              start_date: value,
+              end_date: parsed ? toISO(addDays(parsed, 6)) : "",
+            });
+          }}
+        />
+        <Field label="Week end" type="date" value={draft.end_date || ""} onChange={(value) => onChange({ ...draft, end_date: value })} />
+      </div>
+    );
+  }
+  if (draft.incentive_period === "day") {
+    return <Field label="Reward date" type="date" value={draft.target_date || ""} onChange={(value) => onChange({ ...draft, target_date: value })} />;
+  }
+  if (draft.incentive_period === "custom") {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Start date" type="date" value={draft.start_date || ""} onChange={(value) => onChange({ ...draft, start_date: value })} />
+        <Field label="End date" type="date" value={draft.end_date || ""} onChange={(value) => onChange({ ...draft, end_date: value })} />
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl bg-purple-50 px-4 py-3 text-sm font-bold text-purple-800 dark:bg-purple-950/30 dark:text-purple-100">
+      This reward tracks progress across the full season.
+    </div>
+  );
+}
+
+function incentivePeriodLabel(period) {
+  return {
+    season: "Season",
+    month: "Monthly",
+    week: "Weekly",
+    day: "Daily",
+    custom: "Custom",
+  }[period] || "Season";
+}
+
+function incentiveDateLabel(incentive) {
+  if (incentive.incentive_period === "month") return formatMonth(incentive.target_date || incentive.period_start);
+  if (incentive.incentive_period === "week" || incentive.incentive_period === "custom") {
+    const start = incentive.start_date || incentive.period_start;
+    const end = incentive.end_date || incentive.period_end;
+    return start && end ? formatRange(start, end) : "Date range not set";
+  }
+  if (incentive.incentive_period === "day") return incentive.target_date ? formatDate(incentive.target_date) : "Date not set";
+  return "Full season";
+}
+
+function incentiveStatusLabel(status) {
+  return String(status || "locked").replaceAll("_", " ");
+}
+
+function incentiveStatusTone(status) {
+  if (status === "achieved") return "ahead";
+  if (status === "locked") return "neutral";
+  return "on_track";
 }
 
 function SettingsPage({ user, workspace, saveSettings, savePlan, onSendPasswordReset, onResetStats }) {
@@ -3493,23 +3784,60 @@ function normalizeIncentiveDraft(incentive, planId) {
   const title = String(incentive.title || "").trim();
   const target = parseNumericInput(incentive.target_value);
   const rewardValue = optionalNumber(incentive.reward_value);
+  const source = incentive.incentive_source === "company" ? "company" : "personal";
+  const allowedPeriods = ["season", "month", "week", "day", "custom"];
+  const period = allowedPeriods.includes(incentive.incentive_period) ? incentive.incentive_period : "season";
+  let targetDate = null;
+  let startDate = null;
+  let endDate = null;
   if (!title) throw new Error("Reward name is required.");
   if (!Number.isFinite(target) || target <= 0) throw new Error("Reward goal must be greater than 0.");
   if (!isBlank(incentive.reward_value) && (!Number.isFinite(rewardValue) || rewardValue < 0)) {
     throw new Error("Reward value must be 0 or higher.");
+  }
+  if (period === "month") {
+    targetDate = String(incentive.target_date || "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(targetDate)) throw new Error("Choose a reward month.");
+    targetDate = `${targetDate}-01`;
+  }
+  if (period === "week") {
+    startDate = incentive.start_date || null;
+    if (!parseISO(startDate)) throw new Error("Choose a week start date.");
+    endDate = incentive.end_date || toISO(addDays(parseISO(startDate), 6));
+    if (!parseISO(endDate) || endDate < startDate) throw new Error("Week end must be on or after week start.");
+  }
+  if (period === "day") {
+    targetDate = incentive.target_date || null;
+    if (!parseISO(targetDate)) throw new Error("Choose a reward date.");
+  }
+  if (period === "custom") {
+    startDate = incentive.start_date || null;
+    endDate = incentive.end_date || null;
+    if (!parseISO(startDate) || !parseISO(endDate)) throw new Error("Choose a custom start and end date.");
+    if (endDate < startDate) throw new Error("Custom end date must be on or after the start date.");
   }
   return {
     ...(incentive.id ? { id: incentive.id } : {}),
     plan_id: planId || incentive.plan_id,
     title,
     description: String(incentive.description || "").trim(),
-    incentive_type: incentive.incentive_type || "sales_milestone",
+    incentive_type: incentiveTypeForPeriod(period),
+    incentive_source: source,
+    incentive_period: period,
     target_value: target,
-    target_date: incentive.target_date || null,
+    target_date: targetDate,
+    start_date: startDate,
+    end_date: endDate,
     related_goal_period_id: incentive.related_goal_period_id || null,
     reward_value: rewardValue,
     status: incentive.status || "locked",
   };
+}
+
+function incentiveTypeForPeriod(period) {
+  if (period === "week") return "weekly_goal";
+  if (period === "season") return "season_goal";
+  return "custom";
 }
 
 function newIncentive(planId) {
@@ -3517,8 +3845,13 @@ function newIncentive(planId) {
     plan_id: planId,
     title: "",
     description: "",
-    incentive_type: "sales_milestone",
+    incentive_type: "season_goal",
+    incentive_source: "personal",
+    incentive_period: "season",
     target_value: "",
+    target_date: "",
+    start_date: "",
+    end_date: "",
     reward_value: "",
     status: "locked",
   };
